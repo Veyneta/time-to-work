@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Time to Work</title>
+    <meta name="description" content="ระบบลงเวลา งานหลังบ้าน และรายงานสำหรับร้านค้าแบบ local-first" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="" defer></script>
+    <script defer src="app.js"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand-lockup">
+        <p class="eyebrow light">Time to Work</p>
+        <p class="brand-subtitle">Attendance dashboard for stores and teams</p>
+      </div>
+      <div class="topbar-status" id="topStatus">Offline demo</div>
+    </header>
+
+    <main class="shell">
+      <section class="hero-card panel" id="loginPanel">
+        <div class="hero-copy">
+          <p class="eyebrow light">Clean Minimal Attendance UI</p>
+        </div>
+
+        <div class="login-card login-stack">
+          <div class="login-heading">
+            <h1>LOGIN</h1>
+          </div>
+          <form id="loginForm" class="form-grid">
+            <p class="eyebrow">เข้าใช้งาน</p>
+            <label>
+              Email ร้าน
+              <input id="loginEmail" type="email" autocomplete="username" required placeholder="owner@example.com" />
+            </label>
+            <label>
+              รหัสผ่านร้าน
+              <input id="loginPassword" type="password" autocomplete="current-password" required placeholder="กรอกรหัสผ่านร้าน" />
+            </label>
+            <button type="submit" class="primary">เข้าสู่ระบบ</button>
+            <button id="showRegisterBtn" type="button" class="secondary">สมัครใช้งาน</button>
+            <p class="muted small">หลังเข้าสู่ร้าน ระบบจะให้กรอก PIN พนักงาน</p>
+          </form>
+          <div id="registrationPanel" class="hidden">
+            <div class="login-divider"><span>สมัครร้านค้าใหม่</span></div>
+            <form id="storeForm" class="form-grid registration-card">
+              <label>ชื่อร้าน <input id="newStoreName" required placeholder="เช่น ร้านกาแฟบ้านเรา" /></label>
+              <label>อีเมลเจ้าของร้าน <input id="newStoreEmail" type="email" required placeholder="owner@example.com" /></label>
+              <label>รหัสผ่านร้านค้า <input id="newStorePassword" type="password" minlength="6" required placeholder="อย่างน้อย 6 ตัวอักษร" /></label>
+              <button type="submit" class="primary">สมัครร้านค้า</button>
+              <button id="hideRegisterBtn" type="button" class="ghost">กลับไปเข้าสู่ระบบ</button>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <section class="app-shell hidden" id="appShell">
+        <aside class="sidebar panel">
+          <div class="profile-card">
+            <div>
+              <p class="eyebrow">Session</p>
+              <h3 id="sessionName">-</h3>
+              <p id="sessionMeta" class="muted">-</p>
+            </div>
+            <button id="logoutBtn" class="ghost">ออกจากระบบ</button>
+          </div>
+
+          <nav class="tab-list" id="tabNav">
+            <button class="tab active" data-tab="dashboard">Dashboard</button>
+            <button class="tab" data-tab="clock">Clock</button>
+            <button class="tab admin-only" data-tab="users">Users</button>
+            <button class="tab" data-tab="reports">Reports</button>
+            <button class="tab admin-only" data-tab="settings">Admin</button>
+          </nav>
+
+          <div class="info-stack">
+            <div class="info-card" id="geofenceCard"></div>
+            <div class="info-card" id="clockStateCard"></div>
+          </div>
+        </aside>
+
+        <section class="content panel">
+          <section class="tab-panel active" data-panel="dashboard">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">ภาพรวม</p>
+                <h2>สถานะวันนี้</h2>
+              </div>
+              <div class="chip-row" id="dashboardChips"></div>
+            </div>
+            <div class="stats-grid" id="dashboardStats"></div>
+            <div class="grid-2">
+              <article class="card soft">
+                <div class="section-heading compact">
+                  <h3>กำลังทำงานอยู่</h3>
+                </div>
+                <div id="activeList" class="list-stack"></div>
+              </article>
+              <article class="card soft">
+                <div class="section-heading compact">
+                  <h3>แผนที่ลงเวลา</h3>
+                </div>
+                <canvas id="mapCanvas" width="720" height="420"></canvas>
+                <p class="muted small" id="mapGpsStatus">GPS status: waiting for location</p>
+                <p class="muted small">เส้นวงกลมคือรัศมีร้าน จุดสีต่าง ๆ คือ check-in/check-out วันนี้</p>
+              </article>
+            </div>
+          </section>
+
+          <section class="tab-panel" data-panel="clock">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Clock In / Clock Out</p>
+                <h2>ลงเวลางาน</h2>
+              </div>
+              <div class="chip-row" id="clockChips"></div>
+            </div>
+            <div class="grid-2">
+              <article class="card soft">
+                <h3>การลงเวลาของฉัน</h3>
+                <p class="muted" id="clockHint">ระบบจะตรวจ GPS และ selfie ก่อนบันทึกเวลา</p>
+                <div class="action-row">
+                  <button id="clockInBtn" class="primary">Clock In</button>
+                  <button id="clockOutBtn" class="secondary">Clock Out</button>
+                </div>
+                <div class="detail-grid" id="clockDetail"></div>
+              </article>
+              <article class="card soft">
+                <h3>ประวัติล่าสุด</h3>
+                <div id="recentClockList" class="list-stack"></div>
+              </article>
+            </div>
+          </section>
+
+          <section class="tab-panel admin-only" data-panel="users">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">User Management</p>
+                <h2>จัดการพนักงาน</h2>
+              </div>
+            </div>
+            <div class="grid-2">
+              <article class="card soft">
+                <h3 id="userFormTitle">เพิ่มพนักงาน</h3>
+                <form id="userForm" class="form-grid">
+                  <input type="hidden" id="userId" />
+                  <label>ชื่อพนักงาน <input id="userName" required /></label>
+                  <label>สิทธิ์
+                    <select id="userRole">
+                      <option value="employee">Employee</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  </label>
+                  <label>PIN <input id="userPin" required inputmode="numeric" /></label>
+                  <label>เวลาเข้างาน <input id="userShiftStart" type="time" value="09:00" /></label>
+                  <label>เวลาเลิกงาน <input id="userShiftEnd" type="time" value="18:00" /></label>
+                  <label>เผื่อมาสาย (นาที) <input id="userGrace" type="number" min="0" value="10" /></label>
+                  <label class="checkbox-line"><input id="userActive" type="checkbox" checked /> เปิดใช้งาน</label>
+                  <div class="action-row">
+                    <button class="primary" type="submit">บันทึก</button>
+                    <button class="ghost" type="button" id="userCancelBtn">ยกเลิก</button>
+                  </div>
+                </form>
+              </article>
+              <article class="card soft">
+                <h3>รายชื่อผู้ใช้</h3>
+                <div id="userList" class="table-wrap"></div>
+              </article>
+            </div>
+          </section>
+
+          <section class="tab-panel" data-panel="reports">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Reports</p>
+                <h2>รายงานเวลาและสรุป</h2>
+              </div>
+            </div>
+            <article class="card soft">
+              <div class="filters-row">
+                <label>เดือน <input id="reportMonth" type="month" /></label>
+                <label>พนักงาน
+                  <select id="reportUser"></select>
+                </label>
+                <div class="action-row">
+                  <button id="exportCsvBtn" class="secondary" type="button">Export CSV</button>
+                  <button id="exportJsonBtn" class="ghost" type="button">Export JSON</button>
+                </div>
+              </div>
+              <div class="stats-grid compact" id="reportStats"></div>
+              <div id="reportTable" class="table-wrap"></div>
+            </article>
+          </section>
+
+          <section class="tab-panel admin-only" data-panel="settings">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Admin Dashboard</p>
+                <h2>ตั้งค่าร้านและแก้ไขเวลา</h2>
+              </div>
+            </div>
+            <div class="grid-2">
+              <article class="card soft">
+                <h3>ตั้งค่าพิกัดร้าน</h3>
+                <form id="settingsForm" class="form-grid">
+                  <label>ชื่อร้าน <input id="storeName" required /></label>
+                  <label>Latitude <input id="storeLat" type="number" step="any" required /></label>
+                  <label>Longitude <input id="storeLng" type="number" step="any" required /></label>
+                  <div class="action-row">
+                    <button id="openMapBtn" class="secondary" type="button">เปิดแผนที่เลือกพิกัด</button>
+                    <button id="useGpsBtn" class="ghost" type="button">ใช้พิกัด GPS ปัจจุบัน</button>
+                  </div>
+                  <label>รัศมีอนุญาต (เมตร) <input id="storeRadius" type="number" min="1" required /></label>
+                  <label>มาสายเผื่อได้ (นาที) <input id="lateGrace" type="number" min="0" required /></label>
+                  <label>OT เริ่มหลัง (ชั่วโมง) <input id="otThreshold" type="number" min="1" step="0.5" required /></label>
+                  <label class="checkbox-line"><input id="selfieRequired" type="checkbox" /> บังคับถ่ายรูปตอนลงเวลา</label>
+                  <button type="submit" class="primary">บันทึกการตั้งค่า</button>
+                </form>
+              </article>
+              <article class="card soft">
+                <h3>แก้ไขรายการลงเวลา</h3>
+                <form id="adjustForm" class="form-grid">
+                  <label>รายการ <select id="adjustLog"></select></label>
+                  <label>เวลาเข้าใหม่ <input id="adjustIn" type="datetime-local" /></label>
+                  <label>เวลาออกใหม่ <input id="adjustOut" type="datetime-local" /></label>
+                  <label>เหตุผล <textarea id="adjustReason" rows="4" placeholder="ระบุเหตุผลการแก้ไข"></textarea></label>
+                  <button type="submit" class="secondary">บันทึกการแก้ไข</button>
+                </form>
+              </article>
+            </div>
+            <article class="card soft">
+              <div class="section-heading compact">
+                <h3>ประวัติการแก้ไข</h3>
+              </div>
+              <div id="adjustmentHistory" class="list-stack"></div>
+            </article>
+          </section>
+        </section>
+      </section>
+    </main>
+
+    <div class="modal hidden" id="selfieModal" aria-hidden="true">
+      <div class="modal-card panel">
+        <div class="section-heading compact">
+          <h3>ถ่ายรูปยืนยันตัวตน</h3>
+          <button id="selfieCancelTop" class="ghost" type="button">ปิด</button>
+        </div>
+        <p class="muted">เลือกภาพจากกล้องหรือไฟล์ก่อนบันทึกการลงเวลา</p>
+        <input id="selfieInput" type="file" accept="image/*" capture="user" />
+        <img id="selfiePreview" alt="Selfie preview" class="selfie-preview hidden" />
+        <div class="action-row">
+          <button id="selfieConfirm" class="primary" type="button">ยืนยัน</button>
+          <button id="selfieCancel" class="ghost" type="button">ยกเลิก</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal hidden" id="employeePinModal" aria-hidden="true">
+      <div class="modal-card panel pin-modal-card">
+        <div class="section-heading compact">
+          <h3>ยืนยันพนักงาน</h3>
+          <button id="employeePinCancelTop" class="ghost" type="button">ปิด</button>
+        </div>
+        <p class="muted">กรอก PIN ของพนักงานที่กำลังลงเวลา</p>
+        <form id="employeePinForm" class="form-grid">
+          <label>PIN พนักงาน <input id="employeePinInput" type="password" inputmode="numeric" autocomplete="off" required placeholder="กรอก PIN" /></label>
+          <div class="action-row">
+            <button class="primary" type="submit">ยืนยัน PIN</button>
+            <button id="employeePinCancel" class="ghost" type="button">ยกเลิก</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="modal hidden" id="mapPickerModal" aria-hidden="true">
+      <div class="modal-card panel map-picker-card">
+        <div class="section-heading compact">
+          <h3>เลือกพิกัดร้านบนแผนที่</h3>
+          <button id="mapPickerClose" class="ghost" type="button">ปิด</button>
+        </div>
+        <p class="muted">คลิกบนแผนที่เพื่อเลือกพิกัด แล้วกดใช้ตำแหน่งนี้</p>
+        <div id="mapPickerMap" class="map-picker-map"></div>
+        <div class="map-picker-footer">
+          <div class="map-picker-coords" id="mapPickerCoords">ยังไม่ได้เลือกพิกัด</div>
+          <div class="action-row">
+            <button id="mapPickerUse" type="button" class="primary">ใช้ตำแหน่งนี้</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast-stack" id="toastStack"></div>
+  </body>
+</html>
