@@ -19,7 +19,23 @@
         <p class="eyebrow light">Time to Work</p>
         <p class="brand-subtitle">Attendance dashboard for stores and teams</p>
       </div>
-      <div class="topbar-status" id="topStatus">Offline demo</div>
+      <div class="topbar-actions">
+        <div class="topbar-status" id="topStatus">Offline demo</div>
+        <div class="user-menu" id="userMenu">
+          <button id="userMenuBtn" class="user-menu-button" type="button" aria-label="เปิดข้อมูลผู้ใช้" aria-expanded="false" aria-controls="userMenuPanel">
+            <svg class="user-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="8" r="3.5"></circle>
+              <path d="M5 20c.7-3.2 3-5 7-5s6.3 1.8 7 5"></path>
+            </svg>
+          </button>
+          <div class="user-menu-panel hidden" id="userMenuPanel">
+            <p class="eyebrow">บัญชีผู้ใช้</p>
+            <strong id="userMenuName">-</strong>
+            <p id="userMenuMeta" class="muted small">ล็อกอินเพื่อเริ่มใช้งาน</p>
+            <button id="logoutBtn" class="ghost" type="button">ออกจากระบบ</button>
+          </div>
+        </div>
+      </div>
     </header>
 
     <main class="shell">
@@ -47,7 +63,11 @@
             <p class="muted small">หลังเข้าสู่ร้าน ระบบจะให้กรอก PIN พนักงาน</p>
           </form>
           <div id="registrationPanel" class="hidden">
-            <div class="login-divider"><span>สมัครร้านค้าใหม่</span></div>
+            <div class="registration-heading">
+              <p class="eyebrow">เริ่มต้นใช้งาน</p>
+              <h2>สร้างร้านค้าใหม่</h2>
+              <p class="muted">กรอกข้อมูลเพื่อเริ่มจัดการเวลาเข้างานของทีม</p>
+            </div>
             <form id="storeForm" class="form-grid registration-card">
               <label>ชื่อร้าน <input id="newStoreName" required placeholder="เช่น ร้านกาแฟบ้านเรา" /></label>
               <label>อีเมลเจ้าของร้าน <input id="newStoreEmail" type="email" required placeholder="owner@example.com" /></label>
@@ -61,15 +81,6 @@
 
       <section class="app-shell hidden" id="appShell">
         <aside class="sidebar panel">
-          <div class="profile-card">
-            <div>
-              <p class="eyebrow">Session</p>
-              <h3 id="sessionName">-</h3>
-              <p id="sessionMeta" class="muted">-</p>
-            </div>
-            <button id="logoutBtn" class="ghost">ออกจากระบบ</button>
-          </div>
-
           <nav class="tab-list" id="tabNav">
             <button class="tab active" data-tab="dashboard">Dashboard</button>
             <button class="tab" data-tab="clock">Clock</button>
@@ -105,9 +116,9 @@
                 <div class="section-heading compact">
                   <h3>แผนที่ลงเวลา</h3>
                 </div>
-                <canvas id="mapCanvas" width="720" height="420"></canvas>
+                <iframe id="googleMapFrame" class="google-map-frame" title="Google Maps แสดงตำแหน่งร้าน" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
                 <p class="muted small" id="mapGpsStatus">GPS status: waiting for location</p>
-                <p class="muted small">เส้นวงกลมคือรัศมีร้าน จุดสีต่าง ๆ คือ check-in/check-out วันนี้</p>
+                <p class="muted small">แผนที่แสดงตำแหน่งร้านจาก Google Maps</p>
               </article>
             </div>
           </section>
@@ -123,7 +134,7 @@
             <div class="grid-2">
               <article class="card soft">
                 <h3>การลงเวลาของฉัน</h3>
-                <p class="muted" id="clockHint">ระบบจะตรวจ GPS และ selfie ก่อนบันทึกเวลา</p>
+                <p class="muted" id="clockHint">ระบบจะตรวจ GPS ก่อนบันทึกเวลา</p>
                 <div class="action-row">
                   <button id="clockInBtn" class="primary">Clock In</button>
                   <button id="clockOutBtn" class="secondary">Clock Out</button>
@@ -218,7 +229,6 @@
                   <label>รัศมีอนุญาต (เมตร) <input id="storeRadius" type="number" min="1" required /></label>
                   <label>มาสายเผื่อได้ (นาที) <input id="lateGrace" type="number" min="0" required /></label>
                   <label>OT เริ่มหลัง (ชั่วโมง) <input id="otThreshold" type="number" min="1" step="0.5" required /></label>
-                  <label class="checkbox-line"><input id="selfieRequired" type="checkbox" /> บังคับถ่ายรูปตอนลงเวลา</label>
                   <button type="submit" class="primary">บันทึกการตั้งค่า</button>
                 </form>
               </article>

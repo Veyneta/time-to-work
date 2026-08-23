@@ -78,14 +78,17 @@ function cacheElements() {
     "newStoreName",
     "newStoreEmail",
     "newStorePassword",
-    "sessionName",
-    "sessionMeta",
     "logoutBtn",
+    "userMenu",
+    "userMenuBtn",
+    "userMenuPanel",
+    "userMenuName",
+    "userMenuMeta",
     "tabNav",
     "dashboardChips",
     "dashboardStats",
     "activeList",
-    "mapCanvas",
+    "googleMapFrame",
     "mapGpsStatus",
     "geofenceCard",
     "clockStateCard",
@@ -122,7 +125,6 @@ function cacheElements() {
     "useGpsBtn",
     "lateGrace",
     "otThreshold",
-    "selfieRequired",
     "adjustForm",
     "adjustLog",
     "adjustIn",
@@ -159,6 +161,8 @@ function bindEvents() {
   els.hideRegisterBtn.addEventListener("click", hideRegistration);
   els.storeForm.addEventListener("submit", handleStoreRegistration);
   els.logoutBtn.addEventListener("click", handleLogout);
+  els.userMenuBtn.addEventListener("click", toggleUserMenu);
+  document.addEventListener("click", handleDocumentClick);
   els.tabNav.addEventListener("click", handleTabClick);
   els.clockInBtn.addEventListener("click", () => handleClock("in"));
   els.clockOutBtn.addEventListener("click", () => handleClock("out"));
@@ -190,7 +194,47 @@ function bindEvents() {
   els.mapPickerModal.addEventListener("click", (event) => {
     if (event.target === els.mapPickerModal) closeMapPicker();
   });
+  enableTabDragScroll();
   window.addEventListener("resize", drawMap);
+}
+
+function enableTabDragScroll() {
+  let isDragging = false;
+  let suppressClick = false;
+  let startX = 0;
+  let startScrollLeft = 0;
+
+  els.tabNav.addEventListener("pointerdown", (event) => {
+    isDragging = true;
+    suppressClick = false;
+    startX = event.clientX;
+    startScrollLeft = els.tabNav.scrollLeft;
+  });
+
+  els.tabNav.addEventListener("pointermove", (event) => {
+    if (!isDragging) return;
+    if (Math.abs(event.clientX - startX) < 6) return;
+    suppressClick = true;
+    els.tabNav.setPointerCapture(event.pointerId);
+    els.tabNav.classList.add("is-dragging");
+    els.tabNav.scrollLeft = startScrollLeft - (event.clientX - startX);
+  });
+
+  const stopDragging = () => {
+    isDragging = false;
+    els.tabNav.classList.remove("is-dragging");
+  };
+
+  els.tabNav.addEventListener("click", (event) => {
+    if (!suppressClick) return;
+    event.preventDefault();
+    event.stopPropagation();
+    suppressClick = false;
+  }, true);
+
+  els.tabNav.addEventListener("pointerup", stopDragging);
+  els.tabNav.addEventListener("pointercancel", stopDragging);
+  els.tabNav.addEventListener("pointerleave", stopDragging);
 }
 
 function seedForms() {
@@ -302,13 +346,25 @@ function renderShellVisibility() {
 function renderSessionInfo() {
   const user = currentSessionUser();
   if (!user) {
-    els.sessionName.textContent = "-";
-    els.sessionMeta.textContent = "ล็อกอินเพื่อเริ่มใช้งาน";
+    els.userMenuName.textContent = "ผู้ใช้ทั่วไป";
+    els.userMenuMeta.textContent = "ล็อกอินเพื่อเริ่มใช้งาน";
     return;
   }
 
-  els.sessionName.textContent = user.name;
-  els.sessionMeta.textContent = `${user.role.toUpperCase()} · PIN ${maskPin(user.pin)}`;
+  els.userMenuName.textContent = user.name;
+  els.userMenuMeta.textContent = `${user.role.toUpperCase()} · PIN ${maskPin(user.pin)}`;
+}
+
+function toggleUserMenu() {
+  const isOpen = !els.userMenuPanel.classList.contains("hidden");
+  els.userMenuPanel.classList.toggle("hidden", isOpen);
+  els.userMenuBtn.setAttribute("aria-expanded", String(!isOpen));
+}
+
+function handleDocumentClick(event) {
+  if (els.userMenu.contains(event.target)) return;
+  els.userMenuPanel.classList.add("hidden");
+  els.userMenuBtn.setAttribute("aria-expanded", "false");
 }
 
 function startLiveClock() {
@@ -388,13 +444,16 @@ async function handleLogin(event) {
 }
 
 function showRegistration() {
+  els.loginForm.classList.add("hidden");
   els.registrationPanel.classList.remove("hidden");
-  els.showRegisterBtn.classList.add("hidden");
+  els.loginPanel.classList.add("registration-mode");
+  els.newStoreName.focus();
 }
 
 function hideRegistration() {
+  els.loginForm.classList.remove("hidden");
   els.registrationPanel.classList.add("hidden");
-  els.showRegisterBtn.classList.remove("hidden");
+  els.loginPanel.classList.remove("registration-mode");
   els.storeForm.reset();
 }
 
@@ -422,6 +481,8 @@ function handleStoreRegistration(event) {
 }
 
 function handleLogout() {
+  els.userMenuPanel.classList.add("hidden");
+  els.userMenuBtn.setAttribute("aria-expanded", "false");
   saveSession(null);
   activeTab = "dashboard";
   renderAll();
@@ -536,22 +597,13 @@ function closeEmployeePinModal() {
 }
 
 async function capturePrerequisites() {
-  let selfie = null;
-  if (state.settings.selfieRequired) {
-    selfie = await requestSelfie();
-    if (!selfie) {
-      toast("ต้องยืนยันตัวตนด้วยรูปก่อนบันทึกเวลา", "warning");
-      return null;
-    }
-  }
-
   const location = await getCurrentLocation();
   if (!location) {
     toast("ไม่สามารถดึงตำแหน่ง GPS ได้", "error");
     return null;
   }
 
-  return { selfie, location, distance: distanceMeters(location.latitude, location.longitude, state.settings.lat, state.settings.lng) };
+  return { selfie: null, location, distance: distanceMeters(location.latitude, location.longitude, state.settings.lat, state.settings.lng) };
 }
 
 function requestSelfie() {
@@ -604,8 +656,8 @@ function closeSelfieModal() {
   els.selfieModal.setAttribute("aria-hidden", "true");
 }
 
-async function getCurrentLocation() {
-  if (locationCache) return locationCache;
+async function getCurrentLocation({ fresh = false } = {}) {
+  if (!fresh && locationCache) return locationCache;
   if (!navigator.geolocation) return null;
 
   return new Promise((resolve) => {
@@ -619,7 +671,7 @@ async function getCurrentLocation() {
         resolve(locationCache);
       },
       () => resolve(null),
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 15000 },
+      { enableHighAccuracy: true, timeout: fresh ? 20000 : 10000, maximumAge: fresh ? 0 : 15000 },
     );
   });
 }
@@ -685,20 +737,16 @@ function renderClock() {
   els.geofenceCard.innerHTML = `
     <strong>${state.settings.storeName}</strong>
     <p class="muted small">${state.settings.lat.toFixed(5)}, ${state.settings.lng.toFixed(5)}</p>
-    <p class="small">${state.settings.radius}m radius · ${state.settings.selfieRequired ? "selfie required" : "selfie optional"}</p>
+    <p class="small">${state.settings.radius}m radius · GPS verification</p>
   `;
   els.clockChips.innerHTML = [
     chip(user.role.toUpperCase()),
     chip(locationText),
     chip(geofenceCheck ? (geofenceCheck.allowed ? `inside ${Math.round(geofenceCheck.distance)}m` : `outside ${Math.round(geofenceCheck.distance)}m`) : "waiting GPS"),
   ].join("");
-  els.clockHint.textContent = state.settings.selfieRequired
-    ? outsideStore
-      ? "ตอนนี้อยู่นอกพื้นที่ร้าน จึงลงเวลาไม่ได้"
-      : "ระบบจะขอรูปยืนยันและ GPS ก่อนบันทึกเวลา"
-    : outsideStore
-      ? "ตอนนี้อยู่นอกพื้นที่ร้าน จึงลงเวลาไม่ได้"
-      : "ระบบจะตรวจ GPS ก่อนบันทึกเวลา";
+  els.clockHint.textContent = outsideStore
+    ? "ตอนนี้อยู่นอกพื้นที่ร้าน จึงลงเวลาไม่ได้"
+    : "อยู่ในพื้นที่ร้าน สามารถกดลงเวลาได้ทันที";
 
   els.clockInBtn.disabled = false;
   els.clockOutBtn.disabled = false;
@@ -786,7 +834,6 @@ function renderSettings() {
   els.storeRadius.value = state.settings.radius;
   els.lateGrace.value = state.settings.lateGrace;
   els.otThreshold.value = state.settings.otThreshold;
-  els.selfieRequired.checked = state.settings.selfieRequired;
 }
 
 function openMapPicker() {
@@ -872,7 +919,11 @@ function applyPickedMapPoint() {
 }
 
 async function useCurrentGpsForStore() {
-  const location = await getCurrentLocation();
+  els.useGpsBtn.disabled = true;
+  els.useGpsBtn.textContent = "กำลังค้นหาตำแหน่ง...";
+  const location = await getCurrentLocation({ fresh: true });
+  els.useGpsBtn.disabled = false;
+  els.useGpsBtn.textContent = "ใช้พิกัด GPS ปัจจุบัน";
   if (!location) {
     toast("ยังไม่ได้รับตำแหน่ง GPS", "warning");
     return;
@@ -881,7 +932,7 @@ async function useCurrentGpsForStore() {
   els.storeLat.value = location.latitude.toFixed(6);
   els.storeLng.value = location.longitude.toFixed(6);
   mapPickerSelection = { lat: location.latitude, lng: location.longitude };
-  toast("ใช้พิกัด GPS ปัจจุบันแล้ว", "success");
+  toast(`ใช้พิกัด GPS แล้ว · คลาดเคลื่อน ±${Math.round(location.accuracy)}m`, "success");
 }
 
 function renderAdjustmentLists() {
@@ -997,7 +1048,6 @@ function handleSettingsSave(event) {
     radius: Number(els.storeRadius.value),
     lateGrace: Number(els.lateGrace.value),
     otThreshold: Number(els.otThreshold.value),
-    selfieRequired: els.selfieRequired.checked,
   };
   saveState();
   renderAll();
@@ -1069,6 +1119,24 @@ function renderReportRow(log) {
 }
 
 function drawMap() {
+  const mapFrame = els.googleMapFrame;
+  if (mapFrame) {
+    const latitude = Number(state.settings.lat).toFixed(6);
+    const longitude = Number(state.settings.lng).toFixed(6);
+    const mapUrl = `https://maps.google.com/maps?hl=th&q=${latitude},${longitude}&z=16&t=m&output=embed`;
+    if (mapFrame.src !== mapUrl) mapFrame.src = mapUrl;
+
+    if (els.mapGpsStatus) {
+      if (locationCache) {
+        const geofenceCheck = verifyGeofence(locationCache);
+        els.mapGpsStatus.textContent = `GPS live · ${locationCache.latitude.toFixed(5)}, ${locationCache.longitude.toFixed(5)} · ${Math.round(geofenceCheck.distance)}m from store`;
+      } else {
+        els.mapGpsStatus.textContent = "GPS status: waiting for location";
+      }
+    }
+    return;
+  }
+
   const canvas = els.mapCanvas;
   if (!canvas) return;
   const context = canvas.getContext("2d");
