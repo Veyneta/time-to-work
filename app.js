@@ -7,7 +7,7 @@ const defaultState = {
     lat: 13.7563,
     lng: 100.5018,
     radius: 250,
-    selfieRequired: true,
+    selfieRequired: false,
     lateGrace: 10,
     otThreshold: 9,
   },
@@ -45,19 +45,34 @@ let selectedReportUser = "all";
 let selectedAdjustLog = "";
 let locationCache = null;
 let locationWatchId = null;
+let locationRenderFrame = null;
 let liveClockTimer = null;
 let mapPicker = null;
 let mapPickerMarker = null;
 let mapPickerCircle = null;
 let mapPickerSelection = null;
+let leafletLoadPromise = null;
+
+const dateTimeFormatter = new Intl.DateTimeFormat("th-TH", {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
+const timeFormatter = new Intl.DateTimeFormat("th-TH", {
+  hour: "2-digit",
+  minute: "2-digit",
+});
+const clockFormatter = new Intl.DateTimeFormat("th-TH", {
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+});
 
 const els = {};
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   cacheElements();
   seedForms();
   bindEvents();
-  refreshLocation();
   syncSessionUI();
   startLiveClock();
   renderAll();
@@ -78,6 +93,9 @@ function cacheElements() {
     "newStoreName",
     "newStoreEmail",
     "newStorePassword",
+    "newStorePasswordConfirm",
+    "newAdminPin",
+    "newAdminPinConfirm",
     "logoutBtn",
     "userMenu",
     "userMenuBtn",
@@ -174,11 +192,11 @@ function bindEvents() {
   els.adjustForm.addEventListener("submit", handleAdjustmentSave);
   els.reportMonth.addEventListener("change", () => {
     selectedReportMonth = els.reportMonth.value;
-    renderAll();
+    renderReports();
   });
   els.reportUser.addEventListener("change", () => {
     selectedReportUser = els.reportUser.value;
-    renderAll();
+    renderReports();
   });
   els.exportCsvBtn.addEventListener("click", exportCsv);
   els.exportJsonBtn.addEventListener("click", exportJson);
@@ -251,6 +269,8 @@ function loadState() {
   }
 
   if (Array.isArray(stored.stores) && stored.stores.length) {
+    stored.stores.forEach((store) => delete store.storePassword);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ stores: stored.stores, activeStoreId: stored.activeStoreId }));
     const activeStore = stored.stores.find((store) => store.id === stored.activeStoreId) || stored.stores[0];
     return { ...activeStore, stores: stored.stores, activeStoreId: activeStore.id };
   }
@@ -270,7 +290,8 @@ function createStoreFromLegacy(source, email, password) {
     id: source.id || uid(),
     storeName: source.storeName || source.settings?.storeName || "Time to Work",
     storeEmail: source.storeEmail || email,
-    storePassword: source.storePassword || password,
+    legacyUsersMigrated: Boolean(source.legacyUsersMigrated),
+    legacyAttendanceMigrated: Boolean(source.legacyAttendanceMigrated),
     settings: { ...defaultState.settings, ...(source.settings || {}) },
     users: Array.isArray(source.users) && source.users.length ? structuredClone(source.users) : structuredClone(defaultState.users),
     logs: Array.isArray(source.logs) ? structuredClone(source.logs) : [],
@@ -284,7 +305,8 @@ function storeSnapshotFromState(source) {
     id: source.activeStoreId,
     storeName: source.settings.storeName,
     storeEmail: source.storeEmail,
-    storePassword: source.storePassword,
+    legacyUsersMigrated: Boolean(source.legacyUsersMigrated),
+    legacyAttendanceMigrated: Boolean(source.legacyAttendanceMigrated),
     settings: structuredClone(source.settings),
     users: structuredClone(source.users),
     logs: structuredClone(source.logs),
@@ -296,7 +318,6 @@ function activateStore(storeId) {
   if (!store) return false;
   state.activeStoreId = store.id;
   state.storeEmail = store.storeEmail;
-  state.storePassword = store.storePassword;
   state.settings = store.settings;
   state.users = store.users;
   state.logs = store.logs;
@@ -305,7 +326,7 @@ function activateStore(storeId) {
 
 function loadSession() {
   const stored = safeParse(sessionStorage.getItem(SESSION_KEY));
-  return stored && stored.userId ? stored : null;
+  return stored && stored.userId && stored.token ? stored : null;
 }
 
 function saveSession(nextSession) {
@@ -316,6 +337,12 @@ function saveSession(nextSession) {
     sessionStorage.removeItem(SESSION_KEY);
   }
   syncSessionUI();
+}
+
+async function apiFetch(url, options = {}) {
+  const headers = new Headers(options.headers || {});
+  if (session?.token) headers.set("Authorization", `Bearer ${session.token}`);
+  return fetch(url, { ...options, headers });
 }
 
 function renderAll() {
@@ -374,11 +401,7 @@ function startLiveClock() {
 }
 
 function updateTopStatus() {
-  const nowLabel = new Intl.DateTimeFormat("th-TH", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }).format(new Date());
+  const nowLabel = clockFormatter.format(new Date());
   const user = currentSessionUser();
   els.topStatus.textContent = user ? `${user.name} online · ${nowLabel}` : `Offline demo · ${nowLabel}`;
 }
@@ -393,6 +416,7 @@ function syncSessionUI() {
     activeTab = "dashboard";
   }
   renderShellVisibility();
+  updateLocationWatch();
 }
 
 function renderTabs() {
@@ -414,33 +438,137 @@ function handleTabClick(event) {
   }
   activeTab = button.dataset.tab;
   renderTabs();
+  updateLocationWatch();
+  if (activeTab === "dashboard") drawMap();
 }
 
 async function handleLogin(event) {
   event.preventDefault();
   const email = els.loginEmail.value.trim().toLowerCase();
   const password = els.loginPassword.value;
-  const store = state.stores.find((item) => item.storeEmail.toLowerCase() === email);
-  if (!store || store.storePassword !== password) {
-    toast("Email ร้านหรือรหัสผ่านร้านไม่ถูกต้อง", "error");
+  const pin = await requestEmployeePin();
+  if (!pin) return;
+
+  let result;
+  try {
+    const response = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password, pin }),
+    });
+    result = await response.json();
+    if (!response.ok) {
+      toast(result.error || "เข้าสู่ระบบไม่สำเร็จ", "error");
+      return;
+    }
+  } catch (error) {
+    toast("เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ กรุณาเปิดผ่าน http://localhost:8787", "error");
     return;
   }
 
-  saveState();
+  let store = state.stores.find((item) => item.id === result.store.id);
+  if (!store) {
+    store = createStoreFromLegacy({ id: result.store.id, settings: { ...defaultState.settings, storeName: result.store.name } }, email, password);
+    store.users = [];
+    state.stores.push(store);
+  }
+  store.storeEmail = email;
+  if (result.user.role === "admin") {
+    if (!store.legacyUsersMigrated) {
+      store.legacyUsersMigrated = await syncLocalUsersToApi(store, result.token);
+    }
+    if (!store.legacyAttendanceMigrated) {
+      store.legacyAttendanceMigrated = await syncLocalAttendanceToApi(store, result.token);
+    }
+    await loadUsersFromApi(store, result.token);
+    saveState();
+  }
+  await loadAttendanceFromApi(store, result.token);
+  let employee = store.users.find((item) => item.id === result.user.id);
+  if (employee) {
+    Object.assign(employee, { ...result.user, pin });
+  } else {
+    employee = { ...result.user, pin };
+    store.users.push(employee);
+  }
   activateStore(store.id);
-  const user = state.users.find((item) => item.active && item.role === "admin") || state.users.find((item) => item.active);
-  if (!user) {
-    toast("ร้านนี้ยังไม่มีผู้ใช้ที่เปิดใช้งาน", "error");
-    return;
-  }
+  saveState();
 
-  const employee = await requestEmployeePin();
-  if (!employee) return;
-
-  saveSession({ storeId: state.activeStoreId, userId: employee.id, loggedInAt: Date.now() });
+  saveSession({ token: result.token, storeId: state.activeStoreId, userId: employee.id, loggedInAt: Date.now() });
   els.loginPassword.value = "";
   renderAll();
   toast(`ยินดีต้อนรับ ${employee.name}`, "success");
+}
+
+async function syncLocalUsersToApi(store, token) {
+  let response;
+  try {
+    response = await fetch(`/api/stores/${store.id}/users`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!response.ok) return false;
+    const result = await response.json();
+    const remoteIds = new Set(result.users.map((user) => user.id));
+    const localUsers = store.users.filter((user) => user.role !== "admin" && !remoteIds.has(user.id) && user.pin);
+
+    for (const user of localUsers) {
+      const oldUserId = user.id;
+      const createResponse = await fetch(`/api/stores/${store.id}/users`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(user),
+      });
+      if (!createResponse.ok) continue;
+      const created = await createResponse.json();
+      user.id = created.user.id;
+      store.logs.forEach((log) => {
+        if (log.userId === oldUserId) log.userId = user.id;
+      });
+    }
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+async function loadUsersFromApi(store, token = session?.token) {
+  try {
+    const response = await fetch(`/api/stores/${store.id}/users`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!response.ok) return;
+    const result = await response.json();
+    const localUsersById = new Map(store.users.map((user) => [user.id, user]));
+    store.users = result.users.map((user) => ({
+      ...user,
+      pin: localUsersById.get(user.id)?.pin || "",
+    }));
+    activateStore(store.id);
+  } catch (error) {
+    return;
+  }
+}
+
+async function syncLocalAttendanceToApi(store, token) {
+  try {
+    const response = await fetch(`/api/stores/${store.id}/attendance/migrate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ logs: store.logs }),
+    });
+    return response.ok;
+  } catch (error) {
+    return false;
+  }
+}
+
+async function loadAttendanceFromApi(store, token = session?.token) {
+  try {
+    const response = await fetch(`/api/stores/${store.id}/attendance`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!response.ok) return;
+    const result = await response.json();
+    store.logs = result.logs;
+    activateStore(store.id);
+    saveState();
+  } catch (error) {
+    return;
+  }
 }
 
 function showRegistration() {
@@ -457,32 +585,66 @@ function hideRegistration() {
   els.storeForm.reset();
 }
 
-function handleStoreRegistration(event) {
+async function handleStoreRegistration(event) {
   event.preventDefault();
   const storeName = els.newStoreName.value.trim();
   const storeEmail = els.newStoreEmail.value.trim().toLowerCase();
   const storePassword = els.newStorePassword.value;
-  if (state.stores.some((store) => store.storeEmail.toLowerCase() === storeEmail)) {
-    toast("อีเมลนี้มีร้านค้าใช้งานแล้ว", "warning");
+  const storePasswordConfirm = els.newStorePasswordConfirm.value;
+  const adminPin = els.newAdminPin.value.trim();
+  const adminPinConfirm = els.newAdminPinConfirm.value.trim();
+
+  if (storePassword !== storePasswordConfirm) {
+    toast("รหัสผ่านและยืนยันรหัสผ่านไม่ตรงกัน", "warning");
+    els.newStorePasswordConfirm.focus();
+    return;
+  }
+  if (!/^\d{4,8}$/.test(adminPin) || adminPin !== adminPinConfirm) {
+    toast("PIN Admin ต้องเป็นตัวเลข 4-8 หลักและต้องตรงกัน", "warning");
+    els.newAdminPinConfirm.focus();
     return;
   }
 
-  const newStore = createStoreFromLegacy({ settings: { ...defaultState.settings, storeName } }, storeEmail, storePassword);
-  newStore.users = [{ id: uid(), name: "Admin", role: "admin", pin: "1234", active: true, shiftStart: "09:00", shiftEnd: "18:00", grace: 10 }];
+  let result;
+  try {
+    const response = await fetch("/api/stores", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: storeName,
+        email: storeEmail,
+        password: storePassword,
+        adminName: "Admin",
+        adminPin,
+      }),
+    });
+    result = await response.json();
+    if (!response.ok) {
+      toast(result.error || "สมัครร้านค้าไม่สำเร็จ", "error");
+      return;
+    }
+  } catch (error) {
+    toast("เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ กรุณาเปิดผ่าน http://localhost:8787", "error");
+    return;
+  }
+
+  const newStore = createStoreFromLegacy({ id: result.store.id, settings: { ...defaultState.settings, storeName } }, storeEmail, storePassword);
+  newStore.users = [{ id: result.admin.id, name: result.admin.name, role: result.admin.role, pin: adminPin, active: result.admin.active, shiftStart: result.admin.shiftStart, shiftEnd: result.admin.shiftEnd, grace: result.admin.grace }];
   state.stores.push(newStore);
   saveState();
   activateStore(newStore.id);
   els.loginEmail.value = newStore.storeEmail;
-  els.loginPassword.value = newStore.storePassword;
+  els.loginPassword.value = "";
   hideRegistration();
   els.storeForm.reset();
   renderAll();
-  toast(`สมัครร้าน ${storeName} สำเร็จ ใช้ Admin / 1234 เข้าจัดการร้าน`, "success");
+  toast(`สมัครร้าน ${storeName} สำเร็จ ใช้ PIN Admin ที่ตั้งไว้เข้าสู่ระบบ`, "success");
 }
 
 function handleLogout() {
   els.userMenuPanel.classList.add("hidden");
   els.userMenuBtn.setAttribute("aria-expanded", "false");
+  if (session?.token) apiFetch("/api/auth/logout", { method: "POST" }).catch(() => {});
   saveSession(null);
   activeTab = "dashboard";
   renderAll();
@@ -517,45 +679,27 @@ async function handleClock(kind) {
     return;
   }
 
-  const now = new Date();
   const openLog = getOpenLog(user.id);
-  if (kind === "in") {
-    state.logs.unshift({
-      id: uid(),
-      userId: user.id,
-      userName: user.name,
-      userRole: user.role,
-      clockInAt: now.toISOString(),
-      clockOutAt: null,
-      inLat: snapshot.location.latitude,
-      inLng: snapshot.location.longitude,
-      outLat: null,
-      outLng: null,
-      selfieIn: snapshot.selfie,
-      selfieOut: null,
-      geofenceDistanceIn: Math.round(snapshot.distance),
-      geofenceDistanceOut: null,
-      source: "web",
-      notes: "",
-      auditTrail: [
-        { at: now.toISOString(), action: "clock-in", reason: "self-service" },
-      ],
-      createdAt: now.toISOString(),
-      updatedAt: now.toISOString(),
+  const endpoint = kind === "in" ? "clock-in" : "clock-out";
+  try {
+    const response = await apiFetch(`/api/stores/${state.activeStoreId}/attendance/${endpoint}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ location: snapshot.location, distance: snapshot.distance, selfie: snapshot.selfie }),
     });
-    toast("Clock in สำเร็จ", "success");
-  } else if (openLog) {
-    openLog.clockOutAt = now.toISOString();
-    openLog.outLat = snapshot.location.latitude;
-    openLog.outLng = snapshot.location.longitude;
-    openLog.selfieOut = snapshot.selfie;
-    openLog.geofenceDistanceOut = Math.round(snapshot.distance);
-    openLog.updatedAt = now.toISOString();
-    openLog.auditTrail.push({ at: now.toISOString(), action: "clock-out", reason: "self-service" });
-    toast("Clock out สำเร็จ", "success");
+    const result = await response.json();
+    if (!response.ok) {
+      toast(result.error || "บันทึกเวลาล้มเหลว", "error");
+      return;
+    }
+    if (kind === "in") state.logs.unshift(result.log);
+    else if (openLog) Object.assign(openLog, result.log);
+    saveState();
+    toast(kind === "in" ? "Clock in สำเร็จ" : "Clock out สำเร็จ", "success");
+  } catch (error) {
+    toast("เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ จึงยังไม่บันทึกเวลา", "error");
+    return;
   }
-
-  saveState();
   renderAll();
 }
 
@@ -573,13 +717,12 @@ function requestEmployeePin() {
 function confirmEmployeePin(event) {
   event.preventDefault();
   const pin = els.employeePinInput.value.trim();
-  const user = state.users.find((item) => item.active && item.pin === pin);
-  if (!user) {
+  if (!/^\d{4,8}$/.test(pin)) {
     toast("PIN พนักงานไม่ถูกต้อง", "error");
     return;
   }
   closeEmployeePinModal();
-  pendingEmployeePinResolve?.(user);
+  pendingEmployeePinResolve?.(pin);
   pendingEmployeePinResolve = null;
   pendingEmployeePinReject = null;
 }
@@ -603,7 +746,8 @@ async function capturePrerequisites() {
     return null;
   }
 
-  return { selfie: null, location, distance: distanceMeters(location.latitude, location.longitude, state.settings.lat, state.settings.lng) };
+  const distance = distanceMeters(location.latitude, location.longitude, state.settings.lat, state.settings.lng);
+  return { selfie: null, location, distance };
 }
 
 function requestSelfie() {
@@ -619,16 +763,33 @@ function requestSelfie() {
   });
 }
 
-function handleSelfieSelected(event) {
+async function handleSelfieSelected(event) {
   const file = event.target.files?.[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = () => {
-    pendingSelfieData = String(reader.result || "");
+  reader.onload = async () => {
+    pendingSelfieData = await compressSelfieData(String(reader.result || ""));
     els.selfiePreview.src = pendingSelfieData;
     els.selfiePreview.classList.remove("hidden");
   };
   reader.readAsDataURL(file);
+}
+
+function compressSelfieData(dataUrl) {
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.onload = () => {
+      const maxDimension = 1280;
+      const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL("image/jpeg", 0.78));
+    };
+    image.onerror = () => resolve(dataUrl);
+    image.src = dataUrl;
+  });
 }
 
 function confirmSelfie() {
@@ -677,8 +838,8 @@ async function getCurrentLocation({ fresh = false } = {}) {
 }
 
 function refreshLocation() {
+  stopLocationWatch();
   if (!navigator.geolocation) return;
-  if (locationWatchId !== null) navigator.geolocation.clearWatch(locationWatchId);
   locationWatchId = navigator.geolocation.watchPosition(
     (position) => {
       locationCache = {
@@ -686,13 +847,43 @@ function refreshLocation() {
         longitude: position.coords.longitude,
         accuracy: position.coords.accuracy,
       };
-      renderClock();
-      renderDashboard();
-      drawMap();
+      scheduleLocationRender();
     },
     () => {},
-    { enableHighAccuracy: true, maximumAge: 15000, timeout: 12000 },
+    { enableHighAccuracy: false, maximumAge: 30000, timeout: 12000 },
   );
+}
+
+function stopLocationWatch() {
+  if (locationWatchId !== null && navigator.geolocation) {
+    navigator.geolocation.clearWatch(locationWatchId);
+  }
+  locationWatchId = null;
+  if (locationRenderFrame !== null) {
+    cancelAnimationFrame(locationRenderFrame);
+    locationRenderFrame = null;
+  }
+}
+
+function updateLocationWatch() {
+  const shouldWatch = Boolean(session) && (activeTab === "dashboard" || activeTab === "clock");
+  if (shouldWatch && locationWatchId === null) {
+    refreshLocation();
+  } else if (!shouldWatch && locationWatchId !== null) {
+    stopLocationWatch();
+  }
+}
+
+function scheduleLocationRender() {
+  if (locationRenderFrame !== null) return;
+  locationRenderFrame = requestAnimationFrame(() => {
+    locationRenderFrame = null;
+    renderClock();
+    if (activeTab === "dashboard") {
+      renderDashboard();
+      drawMap();
+    }
+  });
 }
 
 function renderDashboard() {
@@ -851,8 +1042,11 @@ function closeMapPicker() {
   els.mapPickerModal.setAttribute("aria-hidden", "true");
 }
 
-function initMapPicker(point) {
-  if (!window.L || !els.mapPickerMap) {
+async function initMapPicker(point) {
+  if (!els.mapPickerMap) return;
+  try {
+    await loadLeaflet();
+  } catch {
     toast("โหลดแผนที่ไม่สำเร็จ", "error");
     return;
   }
@@ -872,6 +1066,30 @@ function initMapPicker(point) {
 
   setMapPickerPoint(point.lat, point.lng, false);
   setTimeout(() => mapPicker.invalidateSize(), 0);
+}
+
+function loadLeaflet() {
+  if (window.L) return Promise.resolve();
+  if (leafletLoadPromise) return leafletLoadPromise;
+
+  leafletLoadPromise = new Promise((resolve, reject) => {
+    const stylesheet = document.createElement("link");
+    stylesheet.rel = "stylesheet";
+    stylesheet.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+    stylesheet.integrity = "sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=";
+    stylesheet.crossOrigin = "";
+    document.head.append(stylesheet);
+
+    const script = document.createElement("script");
+    script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+    script.integrity = "sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=";
+    script.crossOrigin = "";
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Leaflet failed to load"));
+    document.head.append(script);
+  });
+
+  return leafletLoadPromise;
 }
 
 function setMapPickerPoint(lat, lng, moveMap = true) {
@@ -982,7 +1200,7 @@ function startEditUser(id) {
   els.userActive.checked = user.active;
 }
 
-function deleteUser(id) {
+async function deleteUser(id) {
   const user = state.users.find((item) => item.id === id);
   if (!user) return;
   if (user.id === currentSessionUser()?.id) {
@@ -990,6 +1208,17 @@ function deleteUser(id) {
     return;
   }
   if (!confirm(`ลบ ${user.name} หรือไม่`)) return;
+  try {
+    const response = await apiFetch(`/api/stores/${state.activeStoreId}/users/${id}`, { method: "DELETE" });
+    if (!response.ok) {
+      const result = await response.json();
+      toast(result.error || "ลบผู้ใช้ไม่สำเร็จ", "error");
+      return;
+    }
+  } catch (error) {
+    toast("เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ กรุณาลองใหม่", "error");
+    return;
+  }
   state.users = state.users.filter((item) => item.id !== id);
   saveState();
   renderAll();
@@ -1006,10 +1235,10 @@ function resetUserForm() {
   els.userFormTitle.textContent = "เพิ่มพนักงาน";
 }
 
-function handleUserSave(event) {
+async function handleUserSave(event) {
   event.preventDefault();
-  const payload = {
-    id: els.userId.value || uid(),
+  let payload = {
+    id: els.userId.value,
     name: els.userName.value.trim(),
     role: els.userRole.value,
     pin: els.userPin.value.trim(),
@@ -1019,13 +1248,48 @@ function handleUserSave(event) {
     active: els.userActive.checked,
   };
 
-  if (!payload.name || !payload.pin) {
+  if (!payload.name || !/^\d{4,8}$/.test(payload.pin)) {
     toast("กรอกชื่อและ PIN ให้ครบ", "warning");
     return;
   }
 
+  if (!payload.id) {
+    try {
+      const response = await apiFetch(`/api/stores/${state.activeStoreId}/users`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        toast(result.error || "เพิ่มผู้ใช้ไม่สำเร็จ", "error");
+        return;
+      }
+      payload.id = result.user.id;
+    } catch (error) {
+      toast("เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ กรุณาลองใหม่", "error");
+      return;
+    }
+  }
+
   const existingIndex = state.users.findIndex((user) => user.id === payload.id);
   if (existingIndex >= 0) {
+    try {
+      const response = await apiFetch(`/api/stores/${state.activeStoreId}/users/${payload.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        toast(result.error || "อัปเดตผู้ใช้ไม่สำเร็จ", "error");
+        return;
+      }
+      payload = { ...payload, ...result.user };
+    } catch (error) {
+      toast("เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ กรุณาลองใหม่", "error");
+      return;
+    }
     state.users[existingIndex] = payload;
     toast("อัปเดตผู้ใช้แล้ว", "success");
   } else {
@@ -1054,7 +1318,7 @@ function handleSettingsSave(event) {
   toast("บันทึกการตั้งค่าแล้ว", "success");
 }
 
-function handleAdjustmentSave(event) {
+async function handleAdjustmentSave(event) {
   event.preventDefault();
   const log = state.logs.find((item) => item.id === els.adjustLog.value);
   if (!log) {
@@ -1067,15 +1331,26 @@ function handleAdjustmentSave(event) {
     return;
   }
 
-  if (els.adjustIn.value) log.clockInAt = new Date(els.adjustIn.value).toISOString();
-  if (els.adjustOut.value) log.clockOutAt = new Date(els.adjustOut.value).toISOString();
-  log.updatedAt = new Date().toISOString();
-  log.auditTrail = log.auditTrail || [];
-  log.auditTrail.push({
-    at: new Date().toISOString(),
-    action: "manual-adjustment",
-    reason: els.adjustReason.value.trim(),
-  });
+  try {
+    const response = await apiFetch(`/api/stores/${state.activeStoreId}/attendance/${log.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        clockInAt: els.adjustIn.value ? new Date(els.adjustIn.value).toISOString() : log.clockInAt,
+        clockOutAt: els.adjustOut.value ? new Date(els.adjustOut.value).toISOString() : null,
+        reason: els.adjustReason.value.trim(),
+      }),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      toast(result.error || "บันทึกการแก้ไขไม่สำเร็จ", "error");
+      return;
+    }
+    Object.assign(log, result.log);
+  } catch (error) {
+    toast("เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ กรุณาลองใหม่", "error");
+    return;
+  }
   saveState();
   renderAll();
   toast("บันทึกการแก้ไขแล้ว", "success");
@@ -1119,6 +1394,7 @@ function renderReportRow(log) {
 }
 
 function drawMap() {
+  if (!session || activeTab !== "dashboard") return;
   const mapFrame = els.googleMapFrame;
   if (mapFrame) {
     const latitude = Number(state.settings.lat).toFixed(6);
@@ -1365,17 +1641,11 @@ function formatDateKey(value) {
 }
 
 function formatDateTime(value) {
-  return new Intl.DateTimeFormat("th-TH", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
+  return dateTimeFormatter.format(new Date(value));
 }
 
 function formatTime(value) {
-  return new Intl.DateTimeFormat("th-TH", {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
+  return timeFormatter.format(new Date(value));
 }
 
 function monthKey(date) {

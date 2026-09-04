@@ -17,9 +17,26 @@ Static local-first prototype for time attendance, user management, GPS geofencin
 
 ## How to run
 
-This app is plain HTML, CSS, and JavaScript. Open it from a local web server so browser geolocation works correctly.
+The frontend is plain HTML, CSS, and JavaScript. The project now also includes an optional Node.js + SQLite backend for persistent store and user credentials.
 
 If you are on Windows and do not have Node.js or Python installed, you can use a local preview extension in VS Code or serve the folder with any lightweight HTTP server you already have available.
+
+## SQLite backend
+
+Install Node.js 18 or newer, then run:
+
+```powershell
+npm install
+npm start
+```
+
+The server creates `data/timecation.db` automatically and serves the app at `http://localhost:8787`. The API supports store registration, token-based login with store password plus employee/admin PIN, user management, and attendance records with GPS/selfie metadata.
+
+## Access from another device
+
+Run the server on the main computer with `npm.cmd start`, then use the `LAN access` URL printed in the terminal, for example `http://192.168.1.20:8787`, on a phone or another computer connected to the same Wi-Fi network. If Windows Firewall asks, allow Node.js on Private networks. Do not expose this development server directly to the public internet; deploy it behind HTTPS before production use.
+
+Passwords and PINs are stored as bcrypt hashes. Login tokens are kept in `sessionStorage`; store passwords are not persisted in browser storage. Attendance records are stored in SQLite. Legacy employee data is migrated once after an Admin login.
 
 ## Demo accounts
 
@@ -29,6 +46,6 @@ If you are on Windows and do not have Node.js or Python installed, you can use a
 
 ## Notes
 
-- Data is stored in `localStorage` and `sessionStorage`. This prototype stores registration passwords locally; use a real backend with hashed passwords for production.
+- UI preferences and a local fallback snapshot may remain in `localStorage`; authoritative users and attendance data are stored in SQLite.
 - GPS access requires HTTPS or localhost.
 - Exported CSV files can be opened in Excel.

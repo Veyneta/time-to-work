@@ -7,10 +7,8 @@
     <meta name="description" content="ระบบลงเวลา งานหลังบ้าน และรายงานสำหรับร้านค้าแบบ local-first" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700;800&family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="styles.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="" defer></script>
     <script defer src="app.js"></script>
   </head>
   <body>
@@ -72,6 +70,9 @@
               <label>ชื่อร้าน <input id="newStoreName" required placeholder="เช่น ร้านกาแฟบ้านเรา" /></label>
               <label>อีเมลเจ้าของร้าน <input id="newStoreEmail" type="email" required placeholder="owner@example.com" /></label>
               <label>รหัสผ่านร้านค้า <input id="newStorePassword" type="password" minlength="6" required placeholder="อย่างน้อย 6 ตัวอักษร" /></label>
+              <label>ยืนยันรหัสผ่าน <input id="newStorePasswordConfirm" type="password" minlength="6" required placeholder="กรอกรหัสผ่านอีกครั้ง" /></label>
+              <label>PIN Admin <input id="newAdminPin" type="password" inputmode="numeric" minlength="4" maxlength="8" pattern="[0-9]{4,8}" required placeholder="ตัวเลข 4-8 หลัก" /></label>
+              <label>ยืนยัน PIN Admin <input id="newAdminPinConfirm" type="password" inputmode="numeric" minlength="4" maxlength="8" pattern="[0-9]{4,8}" required placeholder="กรอก PIN อีกครั้ง" /></label>
               <button type="submit" class="primary">สมัครร้านค้า</button>
               <button id="hideRegisterBtn" type="button" class="ghost">กลับไปเข้าสู่ระบบ</button>
             </form>
@@ -167,7 +168,7 @@
                       <option value="admin">Admin</option>
                     </select>
                   </label>
-                  <label>PIN <input id="userPin" required inputmode="numeric" /></label>
+                  <label>PIN <input id="userPin" required inputmode="numeric" minlength="4" maxlength="8" pattern="[0-9]{4,8}" /></label>
                   <label>เวลาเข้างาน <input id="userShiftStart" type="time" value="09:00" /></label>
                   <label>เวลาเลิกงาน <input id="userShiftEnd" type="time" value="18:00" /></label>
                   <label>เผื่อมาสาย (นาที) <input id="userGrace" type="number" min="0" value="10" /></label>
