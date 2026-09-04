@@ -32,6 +32,8 @@ npm start
 
 The server creates `data/timecation.db` automatically and serves the app at `http://localhost:8787`. The API supports store registration, token-based login with store password plus employee/admin PIN, user management, and attendance records with GPS/selfie metadata.
 
+When `DATABASE_URL` is present, the server uses PostgreSQL instead of SQLite. On Render, add the PostgreSQL Internal Database URL as the `DATABASE_URL` environment variable in the Web Service. The PostgreSQL schema is created automatically from `database/schema-postgres.sql` on startup.
+
 ## Access from another device
 
 Run the server on the main computer with `npm.cmd start`, then use the `LAN access` URL printed in the terminal, for example `http://192.168.1.20:8787`, on a phone or another computer connected to the same Wi-Fi network. If Windows Firewall asks, allow Node.js on Private networks. Do not expose this development server directly to the public internet; deploy it behind HTTPS before production use.

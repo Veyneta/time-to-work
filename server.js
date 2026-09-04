@@ -1,3 +1,6 @@
+if (process.env.DATABASE_URL) {
+  require("./server-postgres");
+} else {
 const path = require("node:path");
 const fs = require("node:fs");
 const crypto = require("node:crypto");
@@ -302,3 +305,4 @@ app.listen(port, host, () => {
   console.log(`Time to Work API running at http://localhost:${port}`);
   addresses.forEach((address) => console.log(`LAN access: ${address}`));
 });
+}
