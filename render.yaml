@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: time-to-work
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
