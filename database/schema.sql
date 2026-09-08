@@ -5,6 +5,11 @@ CREATE TABLE IF NOT EXISTS stores (
   name TEXT NOT NULL CHECK (length(trim(name)) > 0),
   email TEXT NOT NULL UNIQUE COLLATE NOCASE,
   password_hash TEXT NOT NULL,
+  store_lat REAL NOT NULL DEFAULT 13.7563,
+  store_lng REAL NOT NULL DEFAULT 100.5018,
+  store_radius REAL NOT NULL DEFAULT 250,
+  late_grace INTEGER NOT NULL DEFAULT 10,
+  ot_threshold REAL NOT NULL DEFAULT 9,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

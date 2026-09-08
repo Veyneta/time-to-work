@@ -23,11 +23,24 @@ function publicLog(log) {
 }
 function validPin(pin) { return /^\d{4,8}$/.test(String(pin || "")); }
 function validEmail(email) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || "")); }
+function publicSettings(store) { return { storeName: store.name, lat: Number(store.store_lat), lng: Number(store.store_lng), radius: Number(store.store_radius), lateGrace: Number(store.late_grace), otThreshold: Number(store.ot_threshold) }; }
 function token() { return crypto.randomBytes(32).toString("hex"); }
 async function one(sql, params = []) { const result = await pool.query(sql, params); return result.rows[0] || null; }
 async function many(sql, params = []) { return (await pool.query(sql, params)).rows; }
 async function run(sql, params = []) { return pool.query(sql, params); }
 async function withTransaction(callback) { const client = await pool.connect(); try { await client.query("BEGIN"); const result = await callback(client); await client.query("COMMIT"); return result; } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); } }
+async function ensureSchema() {
+  const schema = fs.readFileSync(path.join(__dirname, "database", "schema-postgres.sql"), "utf8");
+  await pool.query(schema);
+  await pool.query(`
+    ALTER TABLE stores
+      ADD COLUMN IF NOT EXISTS store_lat DOUBLE PRECISION NOT NULL DEFAULT 13.7563,
+      ADD COLUMN IF NOT EXISTS store_lng DOUBLE PRECISION NOT NULL DEFAULT 100.5018,
+      ADD COLUMN IF NOT EXISTS store_radius DOUBLE PRECISION NOT NULL DEFAULT 250,
+      ADD COLUMN IF NOT EXISTS late_grace INTEGER NOT NULL DEFAULT 10,
+      ADD COLUMN IF NOT EXISTS ot_threshold DOUBLE PRECISION NOT NULL DEFAULT 9
+  `);
+}
 function requireAuth(request, response, next) { const value = String(request.headers.authorization || "").replace(/^Bearer\s+/i, ""); const current = sessions.get(value); if (!current || current.expiresAt < Date.now()) { sessions.delete(value); return response.status(401).json({ error: "กรุณาเข้าสู่ระบบใหม่" }); } request.auth = { token: value, ...current }; next(); }
 function requireAdmin(request, response, next) { if (request.auth.role !== "admin") return response.status(403).json({ error: "ต้องใช้บัญชี Admin" }); next(); }
 function sameStore(request, response, next) { if (request.auth.storeId !== request.params.storeId) return response.status(403).json({ error: "ไม่มีสิทธิ์เข้าถึงร้านนี้" }); next(); }
@@ -59,6 +72,9 @@ app.post("/api/auth/login", async (request, response, next) => {
 });
 app.post("/api/auth/logout", requireAuth, (request, response) => { sessions.delete(request.auth.token); response.status(204).end(); });
 
+app.get("/api/stores/:storeId/settings", requireAuth, sameStore, async (request, response, next) => { try { const store = await one("SELECT * FROM stores WHERE id=$1", [request.params.storeId]); if (!store) return response.status(404).json({ error: "ไม่พบร้านค้า" }); response.json({ settings: publicSettings(store) }); } catch (error) { next(error); } });
+app.put("/api/stores/:storeId/settings", requireAuth, sameStore, requireAdmin, async (request, response, next) => { try { const { storeName, lat, lng, radius, lateGrace, otThreshold } = request.body || {}; const values = [Number(lat), Number(lng), Number(radius), Number(lateGrace), Number(otThreshold)]; if (!String(storeName || "").trim() || values.some((value) => !Number.isFinite(value)) || values[2] <= 0 || values[3] < 0 || values[4] < 0 || values[0] < -90 || values[0] > 90 || values[1] < -180 || values[1] > 180) return response.status(400).json({ error: "ข้อมูลการตั้งค่าร้านไม่ถูกต้อง" }); const store = await one("UPDATE stores SET name=$1,store_lat=$2,store_lng=$3,store_radius=$4,late_grace=$5,ot_threshold=$6,updated_at=NOW() WHERE id=$7 RETURNING *", [String(storeName).trim(), ...values, request.params.storeId]); if (!store) return response.status(404).json({ error: "ไม่พบร้านค้า" }); response.json({ settings: publicSettings(store) }); } catch (error) { next(error); } });
+
 app.post("/api/stores/:storeId/users", requireAuth, sameStore, requireAdmin, async (request, response, next) => {
   try { const { name, role = "employee", pin, shiftStart = "09:00", shiftEnd = "18:00", grace = 10 } = request.body || {}; if (!String(name || "").trim() || !["admin", "employee"].includes(role) || !validPin(pin) || Number(grace) < 0) return response.status(400).json({ error: "ข้อมูลผู้ใช้หรือ PIN ไม่ถูกต้อง" }); const id = crypto.randomUUID(); const hash = await bcrypt.hash(String(pin), 12); await run("INSERT INTO users (id,store_id,name,role,pin_hash,shift_start,shift_end,grace_minutes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)", [id, request.params.storeId, String(name).trim(), role, hash, shiftStart, shiftEnd, Number(grace)]); response.status(201).json({ user: publicUser(await one("SELECT * FROM users WHERE id=$1", [id])) }); } catch (error) { next(error); }
 });
@@ -76,4 +92,4 @@ app.post("/api/stores/:storeId/attendance/migrate", requireAuth, sameStore, requ
 
 app.use((error, request, response, next) => { console.error(error); response.status(500).json({ error: "เกิดข้อผิดพลาดภายในเซิร์ฟเวอร์" }); });
 
-(async () => { try { const schema = fs.readFileSync(path.join(__dirname, "database", "schema-postgres.sql"), "utf8"); await pool.query(schema); app.listen(port, "0.0.0.0", () => console.log(`Time to Work PostgreSQL API running at port ${port}`)); } catch (error) { console.error("PostgreSQL startup failed", error); process.exit(1); } })();
+(async () => { try { await ensureSchema(); app.listen(port, "0.0.0.0", () => console.log(`Time to Work PostgreSQL API running at port ${port}`)); } catch (error) { console.error("PostgreSQL startup failed", error.code || error.message); process.exit(1); } })();

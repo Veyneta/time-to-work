@@ -21,6 +21,15 @@ db.pragma("foreign_keys = ON");
 db.pragma("journal_mode = WAL");
 db.pragma("busy_timeout = 5000");
 db.exec(fs.readFileSync(path.join(__dirname, "database", "schema.sql"), "utf8"));
+for (const statement of [
+  "ALTER TABLE stores ADD COLUMN store_lat REAL NOT NULL DEFAULT 13.7563",
+  "ALTER TABLE stores ADD COLUMN store_lng REAL NOT NULL DEFAULT 100.5018",
+  "ALTER TABLE stores ADD COLUMN store_radius REAL NOT NULL DEFAULT 250",
+  "ALTER TABLE stores ADD COLUMN late_grace INTEGER NOT NULL DEFAULT 10",
+  "ALTER TABLE stores ADD COLUMN ot_threshold REAL NOT NULL DEFAULT 9",
+]) {
+  try { db.exec(statement); } catch (error) { if (!String(error.message).includes("duplicate column name")) throw error; }
+}
 
 const sessions = new Map();
 const sessionLifetimeMs = 24 * 60 * 60 * 1000;
@@ -110,8 +119,36 @@ function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || ""));
 }
 
+function publicSettings(store) {
+  return {
+    storeName: store.name,
+    lat: Number(store.store_lat),
+    lng: Number(store.store_lng),
+    radius: Number(store.store_radius),
+    lateGrace: Number(store.late_grace),
+    otThreshold: Number(store.ot_threshold),
+  };
+}
+
 app.get("/api/health", (request, response) => {
   response.json({ ok: true });
+});
+
+app.get("/api/stores/:storeId/settings", requireAuth, sameStore, (request, response) => {
+  const store = db.prepare("SELECT * FROM stores WHERE id = ?").get(request.params.storeId);
+  if (!store) return response.status(404).json({ error: "ไม่พบร้านค้า" });
+  response.json({ settings: publicSettings(store) });
+});
+
+app.put("/api/stores/:storeId/settings", requireAuth, sameStore, requireAdmin, (request, response) => {
+  const { storeName, lat, lng, radius, lateGrace, otThreshold } = request.body || {};
+  const values = [Number(lat), Number(lng), Number(radius), Number(lateGrace), Number(otThreshold)];
+  if (!String(storeName || "").trim() || values.some((value) => !Number.isFinite(value)) || values[2] <= 0 || values[3] < 0 || values[4] < 0 || values[0] < -90 || values[0] > 90 || values[1] < -180 || values[1] > 180) {
+    return response.status(400).json({ error: "ข้อมูลการตั้งค่าร้านไม่ถูกต้อง" });
+  }
+  const result = db.prepare("UPDATE stores SET name = ?, store_lat = ?, store_lng = ?, store_radius = ?, late_grace = ?, ot_threshold = ?, updated_at = datetime('now') WHERE id = ?").run(String(storeName).trim(), ...values, request.params.storeId);
+  if (!result.changes) return response.status(404).json({ error: "ไม่พบร้านค้า" });
+  response.json({ settings: publicSettings(db.prepare("SELECT * FROM stores WHERE id = ?").get(request.params.storeId)) });
 });
 
 app.post("/api/stores", async (request, response) => {

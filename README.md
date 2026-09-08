@@ -17,7 +17,7 @@ Static local-first prototype for time attendance, user management, GPS geofencin
 
 ## How to run
 
-The frontend is plain HTML, CSS, and JavaScript. The project now also includes an optional Node.js + SQLite backend for persistent store and user credentials.
+The frontend is plain HTML, CSS, and JavaScript. The project includes a Node.js backend for persistent store, user credentials, and attendance records.
 
 If you are on Windows and do not have Node.js or Python installed, you can use a local preview extension in VS Code or serve the folder with any lightweight HTTP server you already have available.
 
@@ -30,15 +30,17 @@ npm install
 npm start
 ```
 
-The server creates `data/timecation.db` automatically and serves the app at `http://localhost:8787`. The API supports store registration, token-based login with store password plus employee/admin PIN, user management, and attendance records with GPS/selfie metadata.
+The server creates `data/timecation.db` automatically and serves the app at `http://localhost:8787`. The API supports store registration, token-based login with store password plus employee/admin PIN, user management, and attendance records with GPS/selfie metadata. Run `npm start` to use the backend; opening `index.html` with a static preview server does not provide the API.
 
-When `DATABASE_URL` is present, the server uses PostgreSQL instead of SQLite. On Render, add the PostgreSQL Internal Database URL as the `DATABASE_URL` environment variable in the Web Service. The PostgreSQL schema is created automatically from `database/schema-postgres.sql` on startup.
+When `DATABASE_URL` is present, the server uses PostgreSQL instead of SQLite. The PostgreSQL schema is created automatically from `database/schema-postgres.sql` on startup. The included `render.yaml` provisions a PostgreSQL database and connects it to the Web Service through `DATABASE_URL`.
+
+SQLite is persistent on the same local machine because it is stored in `data/timecation.db`, but it is not suitable as the primary database on an ephemeral cloud service. After deploying with an older configuration, create the PostgreSQL database and set the Web Service environment variable `DATABASE_URL`; existing accounts stored only in the old instance cannot be recovered after its filesystem was reset.
 
 ## Access from another device
 
 Run the server on the main computer with `npm.cmd start`, then use the `LAN access` URL printed in the terminal, for example `http://192.168.1.20:8787`, on a phone or another computer connected to the same Wi-Fi network. If Windows Firewall asks, allow Node.js on Private networks. Do not expose this development server directly to the public internet; deploy it behind HTTPS before production use.
 
-Passwords and PINs are stored as bcrypt hashes. Login tokens are kept in `sessionStorage`; store passwords are not persisted in browser storage. Attendance records are stored in SQLite. Legacy employee data is migrated once after an Admin login.
+Passwords and PINs are stored as bcrypt hashes. Login tokens are kept in `sessionStorage`; store passwords are not persisted in browser storage. Attendance records are stored in SQLite locally or PostgreSQL when `DATABASE_URL` is configured. Legacy employee data is migrated once after an Admin login.
 
 ## Demo accounts
 
@@ -48,6 +50,6 @@ Passwords and PINs are stored as bcrypt hashes. Login tokens are kept in `sessio
 
 ## Notes
 
-- UI preferences and a local fallback snapshot may remain in `localStorage`; authoritative users and attendance data are stored in SQLite.
+- UI preferences and a local fallback snapshot may remain in `localStorage`; authoritative users and attendance data are stored in the backend database.
 - GPS access requires HTTPS or localhost.
 - Exported CSV files can be opened in Excel.

@@ -75,6 +75,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   bindEvents();
   syncSessionUI();
   startLiveClock();
+  if (session) {
+    const activeStore = state.stores.find((store) => store.id === state.activeStoreId);
+    if (activeStore) await loadSettingsFromApi(activeStore);
+  }
   renderAll();
 });
 
@@ -483,6 +487,7 @@ async function handleLogin(event) {
     await loadUsersFromApi(store, result.token);
     saveState();
   }
+  await loadSettingsFromApi(store, result.token);
   await loadAttendanceFromApi(store, result.token);
   let employee = store.users.find((item) => item.id === result.user.id);
   if (employee) {
@@ -564,6 +569,20 @@ async function loadAttendanceFromApi(store, token = session?.token) {
     if (!response.ok) return;
     const result = await response.json();
     store.logs = result.logs;
+    activateStore(store.id);
+    saveState();
+  } catch (error) {
+    return;
+  }
+}
+
+async function loadSettingsFromApi(store, token = session?.token) {
+  try {
+    const response = await fetch(`/api/stores/${store.id}/settings`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!response.ok) return;
+    const result = await response.json();
+    store.settings = { ...store.settings, ...result.settings };
+    store.storeName = store.settings.storeName;
     activateStore(store.id);
     saveState();
   } catch (error) {
@@ -1302,9 +1321,9 @@ async function handleUserSave(event) {
   renderAll();
 }
 
-function handleSettingsSave(event) {
+async function handleSettingsSave(event) {
   event.preventDefault();
-  state.settings = {
+  const settings = {
     ...state.settings,
     storeName: els.storeName.value.trim(),
     lat: Number(els.storeLat.value),
@@ -1313,6 +1332,22 @@ function handleSettingsSave(event) {
     lateGrace: Number(els.lateGrace.value),
     otThreshold: Number(els.otThreshold.value),
   };
+  try {
+    const response = await apiFetch(`/api/stores/${state.activeStoreId}/settings`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(settings),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      toast(result.error || "บันทึกการตั้งค่าไม่สำเร็จ", "error");
+      return;
+    }
+    state.settings = { ...state.settings, ...result.settings };
+  } catch (error) {
+    toast("เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ กรุณาลองใหม่", "error");
+    return;
+  }
   saveState();
   renderAll();
   toast("บันทึกการตั้งค่าแล้ว", "success");
