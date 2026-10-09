@@ -190,7 +190,7 @@ function cacheElements() {
 
 function bindEvents() {
   els.loginForm.addEventListener("submit", handleLogin);
-  els.forgotPasswordBtn.addEventListener("click", handleForgotPassword);
+  els.forgotPasswordBtn?.addEventListener("click", handleForgotPassword);
   els.showRegisterBtn.addEventListener("click", showRegistration);
   els.hideRegisterBtn.addEventListener("click", hideRegistration);
   els.storeForm.addEventListener("submit", handleStoreRegistration);

@@ -56,10 +56,13 @@
               รหัสผ่านร้าน
               <input id="loginPassword" type="password" autocomplete="current-password" required placeholder="กรอกรหัสผ่านร้าน" />
             </label>
-            <label class="checkbox-line">
-              <input id="loginKeepSignedIn" type="checkbox" />
-              <span>อยู่ในระบบต่อ</span>
-            </label>
+            <div class="login-meta-row">
+              <label class="checkbox-line">
+                <input id="loginKeepSignedIn" type="checkbox" />
+                <span>อยู่ในระบบต่อ</span>
+              </label>
+              <button id="forgotPasswordBtn" class="forgot-link" type="button">ลืมรหัสผ่าน?</button>
+            </div>
             <button type="submit" class="primary">เข้าสู่ระบบ</button>
             <button id="showRegisterBtn" type="button" class="secondary">สมัครใช้งาน</button>
             <p class="muted small">หลังเข้าสู่ร้าน ระบบจะให้กรอก PIN พนักงาน</p>
