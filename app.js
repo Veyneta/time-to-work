@@ -43,6 +43,8 @@ let locationCache = null;
 let locationWatchId = null;
 let locationRenderFrame = null;
 let liveClockTimer = null;
+let attendanceSyncTimer = null;
+let attendanceSyncInFlight = false;
 let mapPicker = null;
 let mapPickerMarker = null;
 let mapPickerCircle = null;
@@ -84,6 +86,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (activeStore) await Promise.all([loadSettingsFromApi(activeStore), loadAttendanceFromApi(activeStore)]);
   }
   renderAll();
+  startAttendanceSync();
 });
 
 function cacheElements() {
@@ -211,6 +214,9 @@ function bindEvents() {
   els.mapPickerUse.addEventListener("click", applyPickedMapPoint);
   els.mapPickerModal.addEventListener("click", (event) => {
     if (event.target === els.mapPickerModal) closeMapPicker();
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) syncAttendanceFromApi();
   });
   enableTabDragScroll();
   window.addEventListener("resize", drawMap);
@@ -523,6 +529,7 @@ async function handleLogin(event) {
   els.loginPassword.value = "";
   els.loginKeepSignedIn.checked = false;
   renderAll();
+  startAttendanceSync();
   toast(`ยินดีต้อนรับ ${employee.name}`, "success");
 }
 
@@ -594,6 +601,28 @@ async function loadAttendanceFromApi(store, token = session?.token) {
     saveState();
   } catch (error) {
     return;
+  }
+}
+
+function startAttendanceSync() {
+  if (attendanceSyncTimer) clearInterval(attendanceSyncTimer);
+  if (!session) return;
+  attendanceSyncTimer = setInterval(syncAttendanceFromApi, 5000);
+}
+
+async function syncAttendanceFromApi() {
+  if (!session || document.hidden || attendanceSyncInFlight) return;
+  const store = state.stores.find((item) => item.id === state.activeStoreId);
+  if (!store) return;
+  attendanceSyncInFlight = true;
+  try {
+    await loadAttendanceFromApi(store);
+    renderDashboard();
+    renderClock();
+    renderReports();
+    renderAdjustmentLists();
+  } finally {
+    attendanceSyncInFlight = false;
   }
 }
 
@@ -689,6 +718,8 @@ function handleLogout() {
   els.userMenuPanel.classList.add("hidden");
   els.userMenuBtn.setAttribute("aria-expanded", "false");
   if (session?.token) apiFetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+  if (attendanceSyncTimer) clearInterval(attendanceSyncTimer);
+  attendanceSyncTimer = null;
   saveSession(null);
   activeTab = "dashboard";
   renderAll();
