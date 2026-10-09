@@ -1,5 +1,6 @@
 const STORAGE_KEY = "timecation.state.v1";
 const SESSION_KEY = "timecation.session.v1";
+const SESSION_PERSIST_KEY = "timecation.session.remember.v1";
 
 const defaultState = {
   settings: {
@@ -53,6 +54,14 @@ let mapPickerCircle = null;
 let mapPickerSelection = null;
 let leafletLoadPromise = null;
 
+function runWhenIdle(callback, timeout = 1500) {
+  if (typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(callback, { timeout });
+  } else {
+    window.setTimeout(callback, 0);
+  }
+}
+
 const dateTimeFormatter = new Intl.DateTimeFormat("th-TH", {
   dateStyle: "medium",
   timeStyle: "short",
@@ -77,7 +86,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   startLiveClock();
   if (session) {
     const activeStore = state.stores.find((store) => store.id === state.activeStoreId);
-    if (activeStore) await loadSettingsFromApi(activeStore);
+    if (activeStore) await Promise.all([loadSettingsFromApi(activeStore), loadAttendanceFromApi(activeStore)]);
   }
   renderAll();
 });
@@ -90,6 +99,8 @@ function cacheElements() {
     "loginForm",
     "loginEmail",
     "loginPassword",
+    "loginKeepSignedIn",
+    "forgotPasswordBtn",
     "showRegisterBtn",
     "registrationPanel",
     "hideRegisterBtn",
@@ -179,6 +190,7 @@ function cacheElements() {
 
 function bindEvents() {
   els.loginForm.addEventListener("submit", handleLogin);
+  els.forgotPasswordBtn.addEventListener("click", handleForgotPassword);
   els.showRegisterBtn.addEventListener("click", showRegistration);
   els.hideRegisterBtn.addEventListener("click", hideRegistration);
   els.storeForm.addEventListener("submit", handleStoreRegistration);
@@ -329,17 +341,31 @@ function activateStore(storeId) {
 }
 
 function loadSession() {
+  const remembered = safeParse(localStorage.getItem(SESSION_PERSIST_KEY));
+  if (remembered && remembered.userId && remembered.token) {
+    return remembered;
+  }
+
   const stored = safeParse(sessionStorage.getItem(SESSION_KEY));
   return stored && stored.userId && stored.token ? stored : null;
 }
 
 function saveSession(nextSession) {
-  session = nextSession;
-  if (nextSession) {
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify(nextSession));
+  const normalized = nextSession ? { ...nextSession, remember: Boolean(nextSession.remember) } : null;
+  session = normalized;
+
+  if (normalized) {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(normalized));
+    if (normalized.remember) {
+      localStorage.setItem(SESSION_PERSIST_KEY, JSON.stringify(normalized));
+    } else {
+      localStorage.removeItem(SESSION_PERSIST_KEY);
+    }
   } else {
     sessionStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem(SESSION_PERSIST_KEY);
   }
+
   syncSessionUI();
 }
 
@@ -453,6 +479,8 @@ async function handleLogin(event) {
   const pin = await requestEmployeePin();
   if (!pin) return;
 
+  const rememberMe = Boolean(els.loginKeepSignedIn?.checked);
+
   let result;
   try {
     const response = await fetch("/api/auth/login", {
@@ -487,8 +515,10 @@ async function handleLogin(event) {
     await loadUsersFromApi(store, result.token);
     saveState();
   }
-  await loadSettingsFromApi(store, result.token);
-  await loadAttendanceFromApi(store, result.token);
+  await Promise.all([
+    loadSettingsFromApi(store, result.token),
+    loadAttendanceFromApi(store, result.token),
+  ]);
   let employee = store.users.find((item) => item.id === result.user.id);
   if (employee) {
     Object.assign(employee, { ...result.user, pin });
@@ -499,8 +529,9 @@ async function handleLogin(event) {
   activateStore(store.id);
   saveState();
 
-  saveSession({ token: result.token, storeId: state.activeStoreId, userId: employee.id, loggedInAt: Date.now() });
+  saveSession({ token: result.token, storeId: state.activeStoreId, userId: employee.id, loggedInAt: Date.now(), remember: rememberMe });
   els.loginPassword.value = "";
+  els.loginKeepSignedIn.checked = false;
   renderAll();
   toast(`ยินดีต้อนรับ ${employee.name}`, "success");
 }
@@ -602,6 +633,10 @@ function hideRegistration() {
   els.registrationPanel.classList.add("hidden");
   els.loginPanel.classList.remove("registration-mode");
   els.storeForm.reset();
+}
+
+function handleForgotPassword() {
+  toast("กรุณาติดต่อผู้ดูแลระบบเพื่อรีเซ็ตรหัสผ่านร้าน", "warning");
 }
 
 async function handleStoreRegistration(event) {
@@ -1432,10 +1467,22 @@ function drawMap() {
   if (!session || activeTab !== "dashboard") return;
   const mapFrame = els.googleMapFrame;
   if (mapFrame) {
+    if (!mapFrame.dataset.loaded) {
+      mapFrame.dataset.loaded = "true";
+      mapFrame.src = "about:blank";
+      runWhenIdle(() => {
+        const latitude = Number(state.settings.lat).toFixed(6);
+        const longitude = Number(state.settings.lng).toFixed(6);
+        mapFrame.src = `https://maps.google.com/maps?hl=th&q=${latitude},${longitude}&z=16&t=m&output=embed`;
+      }, 1500);
+    }
     const latitude = Number(state.settings.lat).toFixed(6);
     const longitude = Number(state.settings.lng).toFixed(6);
     const mapUrl = `https://maps.google.com/maps?hl=th&q=${latitude},${longitude}&z=16&t=m&output=embed`;
-    if (mapFrame.src !== mapUrl) mapFrame.src = mapUrl;
+    if (mapFrame.dataset.loadedUrl !== mapUrl) {
+      mapFrame.dataset.loadedUrl = mapUrl;
+      if (mapFrame.src !== mapUrl && mapFrame.src !== "about:blank") mapFrame.src = mapUrl;
+    }
 
     if (els.mapGpsStatus) {
       if (locationCache) {

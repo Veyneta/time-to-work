@@ -40,7 +40,7 @@ SQLite is persistent on the same local machine because it is stored in `data/tim
 
 Run the server on the main computer with `npm.cmd start`, then use the `LAN access` URL printed in the terminal, for example `http://192.168.1.20:8787`, on a phone or another computer connected to the same Wi-Fi network. If Windows Firewall asks, allow Node.js on Private networks. Do not expose this development server directly to the public internet; deploy it behind HTTPS before production use.
 
-Passwords and PINs are stored as bcrypt hashes. Login tokens are kept in `sessionStorage`; store passwords are not persisted in browser storage. Attendance records are stored in SQLite locally or PostgreSQL when `DATABASE_URL` is configured. Legacy employee data is migrated once after an Admin login.
+Passwords and PINs are stored as bcrypt hashes. Login tokens are kept in `sessionStorage` by default; users who select "อยู่ในระบบต่อ" also get a token copy in `localStorage` until they log out. Store passwords are not persisted in browser storage. Attendance records are stored in SQLite locally or PostgreSQL when `DATABASE_URL` is configured. Legacy employee data is migrated once after an Admin login.
 
 ## Demo accounts
 
