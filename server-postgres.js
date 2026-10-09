@@ -66,7 +66,7 @@ app.post("/api/auth/login", async (request, response, next) => {
     for (const candidate of users) if (await bcrypt.compare(String(pin || ""), candidate.pin_hash)) { user = candidate; break; }
     if (!user) return response.status(401).json({ error: "PIN พนักงานไม่ถูกต้อง" });
     const authToken = token(); sessions.set(authToken, { storeId: store.id, userId: user.id, role: user.role, expiresAt: Date.now() + sessionLifetimeMs });
-    response.json({ token: authToken, store: publicStore(store), user: publicUser(user) });
+    response.json({ token: authToken, store: publicStore(store), settings: publicSettings(store), user: publicUser(user) });
   } catch (error) { next(error); }
 });
 app.post("/api/auth/logout", requireAuth, (request, response) => { sessions.delete(request.auth.token); response.status(204).end(); });

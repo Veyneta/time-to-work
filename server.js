@@ -210,7 +210,7 @@ app.post("/api/auth/login", async (request, response) => {
 
   const token = createToken();
   sessions.set(token, { storeId: store.id, userId: user.id, role: user.role, expiresAt: Date.now() + sessionLifetimeMs });
-  response.json({ token, store: publicStore(store), user: publicUser(user) });
+  response.json({ token, store: publicStore(store), settings: publicSettings(store), user: publicUser(user) });
 });
 
 app.post("/api/auth/logout", requireAuth, (request, response) => {

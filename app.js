@@ -489,6 +489,12 @@ async function handleLogin(event) {
     state.stores.push(store);
   }
   store.storeEmail = email;
+  if (result.settings) {
+    store.settings = { ...store.settings, ...result.settings };
+    store.storeName = store.settings.storeName;
+    activateStore(store.id);
+    saveState();
+  }
   if (result.user.role === "admin") {
     if (!store.legacyUsersMigrated) {
       store.legacyUsersMigrated = await syncLocalUsersToApi(store, result.token);
