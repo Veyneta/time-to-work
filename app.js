@@ -501,20 +501,6 @@ async function handleLogin(event) {
     activateStore(store.id);
     saveState();
   }
-  if (result.user.role === "admin") {
-    if (!store.legacyUsersMigrated) {
-      store.legacyUsersMigrated = await syncLocalUsersToApi(store, result.token);
-    }
-    if (!store.legacyAttendanceMigrated) {
-      store.legacyAttendanceMigrated = await syncLocalAttendanceToApi(store, result.token);
-    }
-    await loadUsersFromApi(store, result.token);
-    saveState();
-  }
-  await Promise.all([
-    loadSettingsFromApi(store, result.token),
-    loadAttendanceFromApi(store, result.token),
-  ]);
   let employee = store.users.find((item) => item.id === result.user.id);
   if (employee) {
     Object.assign(employee, { ...result.user, pin });
@@ -538,6 +524,29 @@ async function handleLogin(event) {
   renderAll();
   startAttendanceSync();
   toast(`ยินดีต้อนรับ ${employee.name}`, "success");
+  refreshStoreAfterLogin(store, result);
+}
+
+async function refreshStoreAfterLogin(store, result) {
+  try {
+    if (result.user.role === "admin") {
+      if (!store.legacyUsersMigrated) {
+        store.legacyUsersMigrated = await syncLocalUsersToApi(store, result.token);
+      }
+      if (!store.legacyAttendanceMigrated) {
+        store.legacyAttendanceMigrated = await syncLocalAttendanceToApi(store, result.token);
+      }
+      await loadUsersFromApi(store, result.token);
+    }
+    await Promise.all([
+      loadSettingsFromApi(store, result.token),
+      loadAttendanceFromApi(store, result.token),
+    ]);
+    saveState();
+    renderAll();
+  } catch (error) {
+    return;
+  }
 }
 
 async function syncLocalUsersToApi(store, token) {
