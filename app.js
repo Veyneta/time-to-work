@@ -83,7 +83,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   startLiveClock();
   if (session) {
     const activeStore = state.stores.find((store) => store.id === state.activeStoreId);
-    if (activeStore) await Promise.all([loadSettingsFromApi(activeStore), loadAttendanceFromApi(activeStore)]);
+    if (activeStore) await Promise.all([loadUsersFromApi(activeStore), loadSettingsFromApi(activeStore), loadAttendanceFromApi(activeStore)]);
   }
   renderAll();
   startAttendanceSync();
@@ -525,7 +525,14 @@ async function handleLogin(event) {
   activateStore(store.id);
   saveState();
 
-  saveSession({ token: result.token, storeId: state.activeStoreId, userId: employee.id, loggedInAt: Date.now(), remember: rememberMe });
+  saveSession({
+    token: result.token,
+    storeId: state.activeStoreId,
+    userId: employee.id,
+    sessionUser: { id: employee.id, name: employee.name, role: employee.role, active: employee.active, shiftStart: employee.shiftStart, shiftEnd: employee.shiftEnd, grace: employee.grace },
+    loggedInAt: Date.now(),
+    remember: rememberMe,
+  });
   els.loginPassword.value = "";
   els.loginKeepSignedIn.checked = false;
   renderAll();
@@ -728,7 +735,7 @@ function handleLogout() {
 
 function currentSessionUser() {
   if (!session) return null;
-  return state.users.find((user) => user.id === session.userId) || null;
+  return state.users.find((user) => user.id === session.userId) || (session.sessionUser?.id === session.userId ? session.sessionUser : null);
 }
 
 async function handleClock(kind) {
