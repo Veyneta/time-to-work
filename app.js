@@ -702,7 +702,10 @@ function currentSessionUser() {
 
 async function handleClock(kind) {
   const user = currentSessionUser();
-  if (!user) return;
+  if (!user) {
+    toast("กรุณาเข้าสู่ระบบก่อนลงเวลา", "warning");
+    return;
+  }
 
   if (kind === "in" && getOpenLog(user.id)) {
     toast("มีรายการ clock-in ที่ยังไม่ clock-out อยู่แล้ว", "warning");
@@ -714,7 +717,7 @@ async function handleClock(kind) {
     return;
   }
 
-  const snapshot = await capturePrerequisites();
+  const snapshot = await capturePrerequisites({ fresh: kind === "in" });
   if (!snapshot) return;
 
   const geofenceCheck = verifyGeofence(snapshot.location);
@@ -783,10 +786,10 @@ function closeEmployeePinModal() {
   els.employeePinModal.setAttribute("aria-hidden", "true");
 }
 
-async function capturePrerequisites() {
-  const location = await getCurrentLocation();
+async function capturePrerequisites({ fresh = false } = {}) {
+  const location = await getCurrentLocation({ fresh });
   if (!location) {
-    toast("ไม่สามารถดึงตำแหน่ง GPS ได้", "error");
+    toast("ไม่สามารถดึงตำแหน่ง GPS ได้ กรุณาอนุญาต Location และลองใหม่", "error");
     return null;
   }
 
