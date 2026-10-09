@@ -7,7 +7,6 @@ CREATE TABLE IF NOT EXISTS stores (
   store_lng DOUBLE PRECISION NOT NULL DEFAULT 100.5018,
   store_radius DOUBLE PRECISION NOT NULL DEFAULT 250,
   late_grace INTEGER NOT NULL DEFAULT 10,
-  ot_threshold DOUBLE PRECISION NOT NULL DEFAULT 9,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -38,8 +37,6 @@ CREATE TABLE IF NOT EXISTS attendance_logs (
   in_lng DOUBLE PRECISION,
   out_lat DOUBLE PRECISION,
   out_lng DOUBLE PRECISION,
-  selfie_in TEXT,
-  selfie_out TEXT,
   geofence_distance_in INTEGER,
   geofence_distance_out INTEGER,
   source TEXT NOT NULL DEFAULT 'web',

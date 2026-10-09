@@ -3,7 +3,7 @@
 
 
 
-Static local-first prototype for time attendance, user management, GPS geofencing, selfie verification, reports, and admin tools.
+Static local-first prototype for time attendance, user management, GPS geofencing, reports, and admin tools.
 
 ## What is included
 
@@ -11,7 +11,6 @@ Static local-first prototype for time attendance, user management, GPS geofencin
 - User Management: add, edit, disable, and delete employees; admin and employee roles; PIN login
 - Clock In / Clock Out: automatic timestamping, duplicate prevention, current user session
 - GPS + Geofencing: browser geolocation and distance checks against store coordinates
-- Extra verification: selfie upload/capture before clocking in or out
 - Reports: daily/monthly summaries, late minutes, OT, CSV/JSON export
 - Admin Dashboard: active staff view, store settings, manual time adjustments, check-in map
 
@@ -30,7 +29,7 @@ npm install
 npm start
 ```
 
-The server creates `data/timecation.db` automatically and serves the app at `http://localhost:8787`. The API supports store registration, token-based login with store password plus employee/admin PIN, user management, and attendance records with GPS/selfie metadata. Run `npm start` to use the backend; opening `index.html` with a static preview server does not provide the API.
+The server creates `data/timecation.db` automatically and serves the app at `http://localhost:8787`. The API supports store registration, token-based login with store password plus employee/admin PIN, user management, and attendance records with GPS metadata. Run `npm start` to use the backend; opening `index.html` with a static preview server does not provide the API.
 
 When `DATABASE_URL` is present, the server uses PostgreSQL instead of SQLite. The PostgreSQL schema is created automatically from `database/schema-postgres.sql` on startup. The included `render.yaml` provisions a PostgreSQL database and connects it to the Web Service through `DATABASE_URL`.
 

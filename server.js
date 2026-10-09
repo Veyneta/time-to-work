@@ -26,7 +26,6 @@ for (const statement of [
   "ALTER TABLE stores ADD COLUMN store_lng REAL NOT NULL DEFAULT 100.5018",
   "ALTER TABLE stores ADD COLUMN store_radius REAL NOT NULL DEFAULT 250",
   "ALTER TABLE stores ADD COLUMN late_grace INTEGER NOT NULL DEFAULT 10",
-  "ALTER TABLE stores ADD COLUMN ot_threshold REAL NOT NULL DEFAULT 9",
 ]) {
   try { db.exec(statement); } catch (error) { if (!String(error.message).includes("duplicate column name")) throw error; }
 }
@@ -70,8 +69,6 @@ function publicLog(log) {
     inLng: log.in_lng,
     outLat: log.out_lat,
     outLng: log.out_lng,
-    selfieIn: log.selfie_in,
-    selfieOut: log.selfie_out,
     geofenceDistanceIn: log.geofence_distance_in,
     geofenceDistanceOut: log.geofence_distance_out,
     source: log.source,
@@ -126,7 +123,6 @@ function publicSettings(store) {
     lng: Number(store.store_lng),
     radius: Number(store.store_radius),
     lateGrace: Number(store.late_grace),
-    otThreshold: Number(store.ot_threshold),
   };
 }
 
@@ -141,12 +137,12 @@ app.get("/api/stores/:storeId/settings", requireAuth, sameStore, (request, respo
 });
 
 app.put("/api/stores/:storeId/settings", requireAuth, sameStore, requireAdmin, (request, response) => {
-  const { storeName, lat, lng, radius, lateGrace, otThreshold } = request.body || {};
-  const values = [Number(lat), Number(lng), Number(radius), Number(lateGrace), Number(otThreshold)];
-  if (!String(storeName || "").trim() || values.some((value) => !Number.isFinite(value)) || values[2] <= 0 || values[3] < 0 || values[4] < 0 || values[0] < -90 || values[0] > 90 || values[1] < -180 || values[1] > 180) {
+  const { storeName, lat, lng, radius, lateGrace } = request.body || {};
+  const values = [Number(lat), Number(lng), Number(radius), Number(lateGrace)];
+  if (!String(storeName || "").trim() || values.some((value) => !Number.isFinite(value)) || values[2] <= 0 || values[3] < 0 || values[0] < -90 || values[0] > 90 || values[1] < -180 || values[1] > 180) {
     return response.status(400).json({ error: "ข้อมูลการตั้งค่าร้านไม่ถูกต้อง" });
   }
-  const result = db.prepare("UPDATE stores SET name = ?, store_lat = ?, store_lng = ?, store_radius = ?, late_grace = ?, ot_threshold = ?, updated_at = datetime('now') WHERE id = ?").run(String(storeName).trim(), ...values, request.params.storeId);
+  const result = db.prepare("UPDATE stores SET name = ?, store_lat = ?, store_lng = ?, store_radius = ?, late_grace = ?, updated_at = datetime('now') WHERE id = ?").run(String(storeName).trim(), ...values, request.params.storeId);
   if (!result.changes) return response.status(404).json({ error: "ไม่พบร้านค้า" });
   response.json({ settings: publicSettings(db.prepare("SELECT * FROM stores WHERE id = ?").get(request.params.storeId)) });
 });
@@ -272,7 +268,7 @@ app.get("/api/stores/:storeId/users", requireAuth, sameStore, (request, response
 });
 
 app.post("/api/stores/:storeId/attendance/clock-in", requireAuth, sameStore, async (request, response) => {
-  const { location, distance, selfie = null } = request.body || {};
+  const { location, distance } = request.body || {};
   const user = db.prepare("SELECT * FROM users WHERE id = ? AND store_id = ? AND active = 1").get(request.auth.userId, request.params.storeId);
   if (!user) return response.status(404).json({ error: "ไม่พบผู้ใช้ที่ใช้งานอยู่" });
   if (db.prepare("SELECT id FROM attendance_logs WHERE user_id = ? AND clock_out_at IS NULL").get(user.id)) {
@@ -280,20 +276,20 @@ app.post("/api/stores/:storeId/attendance/clock-in", requireAuth, sameStore, asy
   }
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
-  db.prepare(`INSERT INTO attendance_logs (id, store_id, user_id, user_name, user_role, clock_in_at, in_lat, in_lng, selfie_in, geofence_distance_in, audit_trail) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(id, request.params.storeId, user.id, user.name, user.role, now, location?.latitude ?? null, location?.longitude ?? null, selfie, Math.round(Number(distance) || 0), JSON.stringify([{ at: now, action: "clock-in", reason: "self-service" }]));
+  db.prepare(`INSERT INTO attendance_logs (id, store_id, user_id, user_name, user_role, clock_in_at, in_lat, in_lng, geofence_distance_in, audit_trail) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(id, request.params.storeId, user.id, user.name, user.role, now, location?.latitude ?? null, location?.longitude ?? null, Math.round(Number(distance) || 0), JSON.stringify([{ at: now, action: "clock-in", reason: "self-service" }]));
   response.status(201).json({ log: publicLog(dbLogForId(id, request.params.storeId)) });
 });
 
 app.post("/api/stores/:storeId/attendance/clock-out", requireAuth, sameStore, async (request, response) => {
-  const { location, distance, selfie = null } = request.body || {};
+  const { location, distance } = request.body || {};
   const log = db.prepare("SELECT * FROM attendance_logs WHERE user_id = ? AND store_id = ? AND clock_out_at IS NULL ORDER BY clock_in_at DESC LIMIT 1").get(request.auth.userId, request.params.storeId);
   if (!log) return response.status(404).json({ error: "ไม่พบรายการ Clock In" });
   const now = new Date().toISOString();
   const auditTrail = JSON.parse(log.audit_trail || "[]");
   auditTrail.push({ at: now, action: "clock-out", reason: "self-service" });
-  db.prepare("UPDATE attendance_logs SET clock_out_at = ?, out_lat = ?, out_lng = ?, selfie_out = ?, geofence_distance_out = ?, audit_trail = ?, updated_at = ? WHERE id = ?")
-    .run(now, location?.latitude ?? null, location?.longitude ?? null, selfie, Math.round(Number(distance) || 0), JSON.stringify(auditTrail), now, log.id);
+  db.prepare("UPDATE attendance_logs SET clock_out_at = ?, out_lat = ?, out_lng = ?, geofence_distance_out = ?, audit_trail = ?, updated_at = ? WHERE id = ?")
+    .run(now, location?.latitude ?? null, location?.longitude ?? null, Math.round(Number(distance) || 0), JSON.stringify(auditTrail), now, log.id);
   response.json({ log: publicLog(dbLogForId(log.id, request.params.storeId)) });
 });
 
@@ -304,12 +300,12 @@ app.get("/api/stores/:storeId/attendance", requireAuth, sameStore, (request, res
 app.post("/api/stores/:storeId/attendance/migrate", requireAuth, sameStore, requireAdmin, (request, response) => {
   const logs = Array.isArray(request.body?.logs) ? request.body.logs : [];
   const users = new Set(db.prepare("SELECT id FROM users WHERE store_id = ?").all(request.params.storeId).map((user) => user.id));
-  const insert = db.prepare(`INSERT OR IGNORE INTO attendance_logs (id, store_id, user_id, user_name, user_role, clock_in_at, clock_out_at, in_lat, in_lng, out_lat, out_lng, selfie_in, selfie_out, geofence_distance_in, geofence_distance_out, source, notes, audit_trail, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  const insert = db.prepare(`INSERT OR IGNORE INTO attendance_logs (id, store_id, user_id, user_name, user_role, clock_in_at, clock_out_at, in_lat, in_lng, out_lat, out_lng, geofence_distance_in, geofence_distance_out, source, notes, audit_trail, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   const migrate = db.transaction(() => {
     let migrated = 0;
     for (const log of logs) {
       if (!log.id || !users.has(log.userId) || !log.clockInAt) continue;
-      const result = insert.run(log.id, request.params.storeId, log.userId, String(log.userName || ""), String(log.userRole || "employee"), log.clockInAt, log.clockOutAt || null, log.inLat ?? null, log.inLng ?? null, log.outLat ?? null, log.outLng ?? null, log.selfieIn || null, log.selfieOut || null, log.geofenceDistanceIn ?? null, log.geofenceDistanceOut ?? null, "migration", String(log.notes || ""), JSON.stringify(log.auditTrail || []), log.createdAt || log.clockInAt, log.updatedAt || log.clockInAt);
+      const result = insert.run(log.id, request.params.storeId, log.userId, String(log.userName || ""), String(log.userRole || "employee"), log.clockInAt, log.clockOutAt || null, log.inLat ?? null, log.inLng ?? null, log.outLat ?? null, log.outLng ?? null, log.geofenceDistanceIn ?? null, log.geofenceDistanceOut ?? null, "migration", String(log.notes || ""), JSON.stringify(log.auditTrail || []), log.createdAt || log.clockInAt, log.updatedAt || log.clockInAt);
       migrated += result.changes;
     }
     return migrated;

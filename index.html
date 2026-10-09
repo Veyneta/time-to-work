@@ -236,7 +236,6 @@
                   </div>
                   <label>รัศมีอนุญาต (เมตร) <input id="storeRadius" type="number" min="1" required /></label>
                   <label>มาสายเผื่อได้ (นาที) <input id="lateGrace" type="number" min="0" required /></label>
-                  <label>OT เริ่มหลัง (ชั่วโมง) <input id="otThreshold" type="number" min="1" step="0.5" required /></label>
                   <button type="submit" class="primary">บันทึกการตั้งค่า</button>
                 </form>
               </article>
@@ -261,22 +260,6 @@
         </section>
       </section>
     </main>
-
-    <div class="modal hidden" id="selfieModal" aria-hidden="true">
-      <div class="modal-card panel">
-        <div class="section-heading compact">
-          <h3>ถ่ายรูปยืนยันตัวตน</h3>
-          <button id="selfieCancelTop" class="ghost" type="button">ปิด</button>
-        </div>
-        <p class="muted">เลือกภาพจากกล้องหรือไฟล์ก่อนบันทึกการลงเวลา</p>
-        <input id="selfieInput" type="file" accept="image/*" capture="user" />
-        <img id="selfiePreview" alt="Selfie preview" class="selfie-preview hidden" />
-        <div class="action-row">
-          <button id="selfieConfirm" class="primary" type="button">ยืนยัน</button>
-          <button id="selfieCancel" class="ghost" type="button">ยกเลิก</button>
-        </div>
-      </div>
-    </div>
 
     <div class="modal hidden" id="employeePinModal" aria-hidden="true">
       <div class="modal-card panel pin-modal-card">

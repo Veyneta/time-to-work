@@ -9,7 +9,6 @@ CREATE TABLE IF NOT EXISTS stores (
   store_lng REAL NOT NULL DEFAULT 100.5018,
   store_radius REAL NOT NULL DEFAULT 250,
   late_grace INTEGER NOT NULL DEFAULT 10,
-  ot_threshold REAL NOT NULL DEFAULT 9,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -41,8 +40,6 @@ CREATE TABLE IF NOT EXISTS attendance_logs (
   in_lng REAL,
   out_lat REAL,
   out_lng REAL,
-  selfie_in TEXT,
-  selfie_out TEXT,
   geofence_distance_in INTEGER,
   geofence_distance_out INTEGER,
   source TEXT NOT NULL DEFAULT 'web',

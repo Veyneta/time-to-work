@@ -8,9 +8,7 @@ const defaultState = {
     lat: 13.7563,
     lng: 100.5018,
     radius: 250,
-    selfieRequired: false,
     lateGrace: 10,
-    otThreshold: 9,
   },
   users: [
     { id: uid(), name: "Admin", role: "admin", pin: "1234", active: true, shiftStart: "09:00", shiftEnd: "18:00", grace: 10 },
@@ -35,9 +33,6 @@ if (session?.storeId && state.stores?.some((store) => store.id === session.store
   activateStore(session.storeId);
 }
 let activeTab = "dashboard";
-let pendingSelfieResolve = null;
-let pendingSelfieReject = null;
-let pendingSelfieData = "";
 let pendingEmployeePinResolve = null;
 let pendingEmployeePinReject = null;
 let editingUserId = null;
@@ -157,19 +152,12 @@ function cacheElements() {
     "openMapBtn",
     "useGpsBtn",
     "lateGrace",
-    "otThreshold",
     "adjustForm",
     "adjustLog",
     "adjustIn",
     "adjustOut",
     "adjustReason",
     "adjustmentHistory",
-    "selfieModal",
-    "selfieInput",
-    "selfiePreview",
-    "selfieConfirm",
-    "selfieCancel",
-    "selfieCancelTop",
     "employeePinModal",
     "employeePinForm",
     "employeePinInput",
@@ -216,10 +204,6 @@ function bindEvents() {
   });
   els.exportCsvBtn.addEventListener("click", exportCsv);
   els.exportJsonBtn.addEventListener("click", exportJson);
-  els.selfieInput.addEventListener("change", handleSelfieSelected);
-  els.selfieConfirm.addEventListener("click", confirmSelfie);
-  els.selfieCancel.addEventListener("click", cancelSelfie);
-  els.selfieCancelTop.addEventListener("click", cancelSelfie);
   els.employeePinForm.addEventListener("submit", confirmEmployeePin);
   els.employeePinCancel.addEventListener("click", cancelEmployeePin);
   els.employeePinCancelTop.addEventListener("click", cancelEmployeePin);
@@ -739,7 +723,7 @@ async function handleClock(kind) {
     const response = await apiFetch(`/api/stores/${state.activeStoreId}/attendance/${endpoint}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ location: snapshot.location, distance: snapshot.distance, selfie: snapshot.selfie }),
+      body: JSON.stringify({ location: snapshot.location, distance: snapshot.distance }),
     });
     const result = await response.json();
     if (!response.ok) {
@@ -801,74 +785,7 @@ async function capturePrerequisites() {
   }
 
   const distance = distanceMeters(location.latitude, location.longitude, state.settings.lat, state.settings.lng);
-  return { selfie: null, location, distance };
-}
-
-function requestSelfie() {
-  pendingSelfieData = "";
-  els.selfieInput.value = "";
-  els.selfiePreview.src = "";
-  els.selfiePreview.classList.add("hidden");
-  els.selfieModal.classList.remove("hidden");
-  els.selfieModal.setAttribute("aria-hidden", "false");
-  return new Promise((resolve, reject) => {
-    pendingSelfieResolve = resolve;
-    pendingSelfieReject = reject;
-  });
-}
-
-async function handleSelfieSelected(event) {
-  const file = event.target.files?.[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = async () => {
-    pendingSelfieData = await compressSelfieData(String(reader.result || ""));
-    els.selfiePreview.src = pendingSelfieData;
-    els.selfiePreview.classList.remove("hidden");
-  };
-  reader.readAsDataURL(file);
-}
-
-function compressSelfieData(dataUrl) {
-  return new Promise((resolve) => {
-    const image = new Image();
-    image.onload = () => {
-      const maxDimension = 1280;
-      const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
-      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
-      canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
-      resolve(canvas.toDataURL("image/jpeg", 0.78));
-    };
-    image.onerror = () => resolve(dataUrl);
-    image.src = dataUrl;
-  });
-}
-
-function confirmSelfie() {
-  if (!pendingSelfieData) {
-    toast("กรุณาเลือกรูปก่อนยืนยัน", "warning");
-    return;
-  }
-  closeSelfieModal();
-  pendingSelfieResolve?.(pendingSelfieData);
-  pendingSelfieResolve = null;
-  pendingSelfieReject = null;
-  pendingSelfieData = "";
-}
-
-function cancelSelfie() {
-  closeSelfieModal();
-  pendingSelfieReject?.(new Error("cancelled"));
-  pendingSelfieResolve = null;
-  pendingSelfieReject = null;
-  pendingSelfieData = "";
-}
-
-function closeSelfieModal() {
-  els.selfieModal.classList.add("hidden");
-  els.selfieModal.setAttribute("aria-hidden", "true");
+  return { location, distance };
 }
 
 async function getCurrentLocation({ fresh = false } = {}) {
@@ -945,7 +862,6 @@ function renderDashboard() {
   const activeLogs = todayLogs.filter((log) => !log.clockOutAt);
   const lateCount = todayLogs.filter((log) => lateMinutes(log) > 0).length;
   const totalHours = todayLogs.reduce((sum, log) => sum + workedHours(log), 0);
-  const otHours = todayLogs.reduce((sum, log) => sum + overtimeHours(log), 0);
 
   els.dashboardChips.innerHTML = [
     chip(`เดือน ${selectedReportMonth}`),
@@ -1050,7 +966,7 @@ function renderReports() {
     statCard("Records", filtered.length),
     statCard("Hours", totals.hours.toFixed(1)),
     statCard("Late mins", totals.lateMinutes),
-    statCard("OT hrs", totals.otHours.toFixed(1)),
+    statCard("Geo checked", filtered.filter((log) => geoLabel(log) !== "-").length),
   ].join("");
 
   els.reportTable.innerHTML = filtered.length
@@ -1058,7 +974,7 @@ function renderReports() {
       <table>
         <thead>
           <tr>
-            <th>Date</th><th>Employee</th><th>In</th><th>Out</th><th>Hours</th><th>Late</th><th>OT</th><th>Geo</th>
+            <th>Date</th><th>Employee</th><th>In</th><th>Out</th><th>Hours</th><th>Late</th><th>Geo</th>
           </tr>
         </thead>
         <tbody>
@@ -1078,7 +994,6 @@ function renderSettings() {
   els.storeLng.value = state.settings.lng;
   els.storeRadius.value = state.settings.radius;
   els.lateGrace.value = state.settings.lateGrace;
-  els.otThreshold.value = state.settings.otThreshold;
 }
 
 function openMapPicker() {
@@ -1365,7 +1280,6 @@ async function handleSettingsSave(event) {
     lng: Number(els.storeLng.value),
     radius: Number(els.storeRadius.value),
     lateGrace: Number(els.lateGrace.value),
-    otThreshold: Number(els.otThreshold.value),
   };
   try {
     const response = await apiFetch(`/api/stores/${state.activeStoreId}/settings`, {
@@ -1448,7 +1362,6 @@ function verifyGeofence(location) {
 
 function renderReportRow(log) {
   const late = lateMinutes(log);
-  const ot = overtimeHours(log);
   return `
     <tr>
       <td>${formatDateKey(log.clockInAt)}</td>
@@ -1457,7 +1370,6 @@ function renderReportRow(log) {
       <td>${log.clockOutAt ? formatTime(log.clockOutAt) : "Open"}</td>
       <td>${workedHours(log).toFixed(1)}</td>
       <td>${late > 0 ? `${late}m` : "-"}</td>
-      <td>${ot > 0 ? `${ot.toFixed(1)}h` : "-"}</td>
       <td>${geoLabel(log)}</td>
     </tr>
   `;
@@ -1625,7 +1537,7 @@ function projectPoint(lat, lng, width, height, radiusPx) {
 function exportCsv() {
   const rows = getFilteredLogs({ month: selectedReportMonth, userId: selectedReportUser });
   const csv = [
-    ["Date", "Employee", "Role", "Clock In", "Clock Out", "Hours", "Late Minutes", "OT Hours", "Geo"],
+    ["Date", "Employee", "Role", "Clock In", "Clock Out", "Hours", "Late Minutes", "Geo"],
     ...rows.map((log) => [
       formatDateKey(log.clockInAt),
       log.userName,
@@ -1634,7 +1546,6 @@ function exportCsv() {
       log.clockOutAt ? formatTime(log.clockOutAt) : "Open",
       workedHours(log).toFixed(2),
       lateMinutes(log),
-      overtimeHours(log).toFixed(2),
       geoLabel(log),
     ]),
   ]
@@ -1666,22 +1577,15 @@ function summaryForLogs(logs) {
     (accumulator, log) => {
       accumulator.hours += workedHours(log);
       accumulator.lateMinutes += lateMinutes(log);
-      accumulator.otHours += overtimeHours(log);
       return accumulator;
     },
-    { hours: 0, lateMinutes: 0, otHours: 0 },
+    { hours: 0, lateMinutes: 0 },
   );
 }
 
 function workedHours(log) {
   if (!log.clockOutAt) return 0;
   return Math.max(0, (new Date(log.clockOutAt) - new Date(log.clockInAt)) / 36e5);
-}
-
-function overtimeHours(log) {
-  if (!log.clockOutAt) return 0;
-  const threshold = state.settings.otThreshold ?? 9;
-  return Math.max(0, workedHours(log) - threshold);
 }
 
 function lateMinutes(log) {
@@ -1781,8 +1685,6 @@ function seedLog(userName, userRole, dayOffset, inHour, outHour, userId = null) 
     inLng: 100.5018 + (Math.random() - 0.5) * 0.002,
     outLat: outAt ? 13.7563 + (Math.random() - 0.5) * 0.002 : null,
     outLng: outAt ? 100.5018 + (Math.random() - 0.5) * 0.002 : null,
-    selfieIn: "",
-    selfieOut: "",
     geofenceDistanceIn: 20,
     geofenceDistanceOut: outAt ? 20 : null,
     source: "seed",
