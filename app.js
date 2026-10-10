@@ -83,12 +83,37 @@ document.addEventListener("DOMContentLoaded", async () => {
   syncSessionUI();
   startLiveClock();
   if (session) {
+    await loadBranchesFromApi();
     const activeStore = state.stores.find((store) => store.id === session.storeId) || state.stores.find((store) => store.id === state.activeStoreId);
     if (activeStore) await Promise.all([loadUsersFromApi(activeStore), loadSettingsFromApi(activeStore), loadAttendanceFromApi(activeStore)]);
   }
   renderAll();
   startAttendanceSync();
 });
+
+async function loadBranchesFromApi() {
+  try {
+    const response = await apiFetch(`/api/auth/branches?sync=${Date.now()}`);
+    if (!response.ok) return;
+    const result = await response.json();
+    const branchIds = new Set(result.branches.map((branch) => branch.id));
+    state.stores = state.stores.filter((store) => branchIds.has(store.id));
+    for (const branch of result.branches) {
+      const localStore = state.stores.find((store) => store.id === branch.id);
+      if (localStore) {
+        localStore.storeName = branch.name;
+        localStore.storeEmail = branch.email;
+      } else {
+        state.stores.push(createStoreFromLegacy({ id: branch.id, settings: { ...defaultState.settings, storeName: branch.name } }, branch.email, ""));
+      }
+    }
+    const activeStoreId = branchIds.has(session.storeId) ? session.storeId : result.branches[0]?.id;
+    if (activeStoreId) activateStore(activeStoreId);
+    saveState();
+  } catch (error) {
+    return;
+  }
+}
 
 function cacheElements() {
   const ids = [
@@ -523,6 +548,11 @@ async function handleLogin(event) {
   for (const branch of result.branches || []) {
     if (state.stores.some((item) => item.id === branch.id)) continue;
     state.stores.push(createStoreFromLegacy({ id: branch.id, settings: { ...defaultState.settings, storeName: branch.name } }, email, password));
+  }
+  if (result.branches?.length) {
+    const branchIds = new Set(result.branches.map((branch) => branch.id));
+    state.stores = state.stores.filter((item) => branchIds.has(item.id));
+    store = state.stores.find((item) => item.id === result.store.id) || store;
   }
   if (result.settings) {
     store.settings = { ...store.settings, ...result.settings };

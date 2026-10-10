@@ -100,6 +100,7 @@ app.post("/api/auth/login", async (request, response, next) => {
   } catch (error) { next(error); }
 });
 app.post("/api/auth/logout", requireAuth, (request, response) => { sessions.delete(request.auth.token); response.status(204).end(); });
+app.get("/api/auth/branches", requireAuth, async (request, response, next) => { try { response.json({ branches: (await many("SELECT * FROM stores WHERE account_id=$1 ORDER BY created_at", [request.auth.accountId])).map(publicStore) }); } catch (error) { next(error); } });
 
 app.post("/api/auth/switch-branch", requireAuth, async (request, response, next) => {
   try {
