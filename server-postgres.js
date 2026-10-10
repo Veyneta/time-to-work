@@ -44,6 +44,7 @@ async function ensureSchema() {
       ADD COLUMN IF NOT EXISTS store_radius DOUBLE PRECISION NOT NULL DEFAULT 250,
       ADD COLUMN IF NOT EXISTS late_grace INTEGER NOT NULL DEFAULT 10
   `);
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_stores_account ON stores(account_id)");
   await pool.query("ALTER TABLE stores DROP CONSTRAINT IF EXISTS stores_email_key");
   await pool.query("INSERT INTO accounts (id, name, email, password_hash) SELECT id, name, email, password_hash FROM stores WHERE account_id IS NULL ON CONFLICT (email) DO NOTHING");
   await pool.query("UPDATE stores AS stores SET account_id = accounts.id FROM accounts WHERE stores.account_id IS NULL AND accounts.email = stores.email");
