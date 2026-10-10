@@ -13,6 +13,10 @@ const sessionLifetimeMs = 24 * 60 * 60 * 1000;
 
 app.use(express.json({ limit: "5mb" }));
 app.use(express.static(__dirname));
+app.use((request, response, next) => {
+  if (request.path.startsWith("/api/")) response.set("Cache-Control", "no-store, no-cache, must-revalidate");
+  next();
+});
 
 function publicUser(user) {
   return { id: user.id, storeId: user.store_id, name: user.name, role: user.role, active: Boolean(user.active), shiftStart: user.shift_start, shiftEnd: user.shift_end, grace: user.grace_minutes };

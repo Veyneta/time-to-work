@@ -586,7 +586,7 @@ async function syncLocalUsersToApi(store, token) {
 
 async function loadUsersFromApi(store, token = session?.token) {
   try {
-    const response = await fetch(`/api/stores/${store.id}/users`, { headers: { Authorization: `Bearer ${token}` } });
+    const response = await fetch(`/api/stores/${store.id}/users?sync=${Date.now()}`, { cache: "no-store", headers: { Authorization: `Bearer ${token}`, "Cache-Control": "no-cache" } });
     if (!response.ok) return;
     const result = await response.json();
     const localUsersById = new Map(store.users.map((user) => [user.id, user]));
@@ -615,7 +615,7 @@ async function syncLocalAttendanceToApi(store, token) {
 
 async function loadAttendanceFromApi(store, token = session?.token) {
   try {
-    const response = await fetch(`/api/stores/${store.id}/attendance`, { headers: { Authorization: `Bearer ${token}` } });
+    const response = await fetch(`/api/stores/${store.id}/attendance?sync=${Date.now()}`, { cache: "no-store", headers: { Authorization: `Bearer ${token}`, "Cache-Control": "no-cache" } });
     if (!response.ok) return;
     const result = await response.json();
     store.logs = result.logs;
@@ -634,7 +634,7 @@ function startAttendanceSync() {
 
 async function syncAttendanceFromApi() {
   if (!session || document.hidden || attendanceSyncInFlight) return;
-  const store = state.stores.find((item) => item.id === state.activeStoreId);
+  const store = state.stores.find((item) => item.id === session.storeId) || state.stores.find((item) => item.id === state.activeStoreId);
   if (!store) return;
   attendanceSyncInFlight = true;
   try {
@@ -650,7 +650,7 @@ async function syncAttendanceFromApi() {
 
 async function loadSettingsFromApi(store, token = session?.token) {
   try {
-    const response = await fetch(`/api/stores/${store.id}/settings`, { headers: { Authorization: `Bearer ${token}` } });
+    const response = await fetch(`/api/stores/${store.id}/settings?sync=${Date.now()}`, { cache: "no-store", headers: { Authorization: `Bearer ${token}`, "Cache-Control": "no-cache" } });
     if (!response.ok) return;
     const result = await response.json();
     store.settings = { ...store.settings, ...result.settings };
