@@ -446,7 +446,7 @@ function renderSessionInfo() {
   }
 
   els.userMenuName.textContent = user.name;
-  els.userMenuMeta.textContent = `${user.role.toUpperCase()} · PIN ${maskPin(user.pin)}`;
+  els.userMenuMeta.textContent = `${user.role === "admin" ? "ผู้ดูแลระบบ" : "พนักงาน"} · PIN ${maskPin(user.pin)}`;
 }
 
 function toggleUserMenu() {
@@ -470,7 +470,7 @@ function startLiveClock() {
 function updateTopStatus() {
   const nowLabel = clockFormatter.format(new Date());
   const user = currentSessionUser();
-  els.topStatus.textContent = user ? `${user.name} online · ${nowLabel}` : `Offline demo · ${nowLabel}`;
+  els.topStatus.textContent = user ? `${user.name} ออนไลน์ · ${nowLabel}` : `โหมดออฟไลน์ · ${nowLabel}`;
 }
 
 function syncSessionUI() {
@@ -852,17 +852,17 @@ async function handleClock(kind) {
   }
 
   if (kind === "in" && getOpenLog(user.id)) {
-    toast("มีรายการ clock-in ที่ยังไม่ clock-out อยู่แล้ว", "warning");
+    toast("มีรายการลงเวลาเข้าที่ยังไม่ได้ลงเวลาออกอยู่แล้ว", "warning");
     return;
   }
 
   if (kind === "out" && !getOpenLog(user.id)) {
-    toast("ยังไม่มีรายการ clock-in สำหรับ clock-out", "warning");
+    toast("ยังไม่มีรายการลงเวลาเข้าสำหรับลงเวลาออก", "warning");
     return;
   }
 
   const actionButton = kind === "in" ? els.clockInBtn : els.clockOutBtn;
-  const idleLabel = kind === "in" ? "Clock In" : "Clock Out";
+  const idleLabel = kind === "in" ? "ลงเวลาเข้า" : "ลงเวลาออก";
   setButtonLoading(actionButton, true, "กำลังบันทึกเวลา...");
   const snapshot = await capturePrerequisites({ fresh: kind === "in" });
   if (!snapshot) {
@@ -894,7 +894,7 @@ async function handleClock(kind) {
     if (kind === "in") state.logs.unshift(result.log);
     else if (openLog) Object.assign(openLog, result.log);
     saveState();
-    toast(kind === "in" ? "Clock in สำเร็จ" : "Clock out สำเร็จ", "success");
+    toast(kind === "in" ? "ลงเวลาเข้าสำเร็จ" : "ลงเวลาออกสำเร็จ", "success");
   } catch (error) {
     toast("เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ จึงยังไม่บันทึกเวลา", "error");
     setButtonLoading(actionButton, false, idleLabel);
@@ -1047,14 +1047,14 @@ function renderDashboard() {
   els.dashboardChips.innerHTML = [
     chip(`เดือน ${selectedReportMonth}`),
     chip(`${state.settings.storeName}`),
-    chip(`${state.settings.radius}m geofence`),
+    chip(`รัศมี ${state.settings.radius} เมตร`),
   ].join("");
 
   els.dashboardStats.innerHTML = [
-    statCard("Active now", activeLogs.length),
-    statCard("Today entries", todayLogs.length),
-    statCard("Late", lateCount),
-    statCard("Hours", totalHours.toFixed(1)),
+    statCard("กำลังทำงาน", activeLogs.length),
+    statCard("รายการวันนี้", todayLogs.length),
+    statCard("มาสาย", lateCount),
+    statCard("ชั่วโมงทำงาน", totalHours.toFixed(1)),
   ].join("");
 
   els.activeList.innerHTML = activeLogs.length
@@ -1073,18 +1073,18 @@ function renderClock() {
   const outsideStore = Boolean(geofenceCheck && !geofenceCheck.allowed);
 
   els.clockStateCard.innerHTML = `
-    <strong>${openLog ? "Clocked in" : "Ready"}</strong>
+    <strong>${openLog ? "ลงเวลาเข้าแล้ว" : "พร้อมลงเวลา"}</strong>
     <p class="muted small">${openLog ? "คุณมีรายการเปิดอยู่" : outsideStore ? "อยู่นอกพื้นที่ร้าน ลงเวลาไม่ได้" : "สามารถลงเวลาได้"}</p>
   `;
   els.geofenceCard.innerHTML = `
     <strong>${state.settings.storeName}</strong>
     <p class="muted small">${state.settings.lat.toFixed(5)}, ${state.settings.lng.toFixed(5)}</p>
-    <p class="small">${state.settings.radius}m radius · GPS verification</p>
+    <p class="small">รัศมี ${state.settings.radius} เมตร · ตรวจสอบ GPS</p>
   `;
   els.clockChips.innerHTML = [
-    chip(user.role.toUpperCase()),
+    chip(user.role === "admin" ? "ผู้ดูแลระบบ" : "พนักงาน"),
     chip(locationText),
-    chip(geofenceCheck ? (geofenceCheck.allowed ? `inside ${Math.round(geofenceCheck.distance)}m` : `outside ${Math.round(geofenceCheck.distance)}m`) : "waiting GPS"),
+    chip(geofenceCheck ? (geofenceCheck.allowed ? `อยู่ในพื้นที่ · ${Math.round(geofenceCheck.distance)} เมตร` : `อยู่นอกพื้นที่ · ${Math.round(geofenceCheck.distance)} เมตร`) : "กำลังรอ GPS"),
   ].join("");
   els.clockHint.textContent = outsideStore
     ? "ตอนนี้อยู่นอกพื้นที่ร้าน จึงลงเวลาไม่ได้"
@@ -1094,15 +1094,15 @@ function renderClock() {
   els.clockOutBtn.disabled = false;
 
   els.clockDetail.innerHTML = `
-    ${detailItem("Shift start", user.shiftStart)}
-    ${detailItem("Shift end", user.shiftEnd)}
-    ${detailItem("Grace", `${user.grace ?? state.settings.lateGrace} นาที`)}
-    ${detailItem("Open log", openLog ? formatDateTime(openLog.clockInAt) : "ไม่มี")}
+    ${detailItem("เวลาเข้างาน", user.shiftStart)}
+    ${detailItem("เวลาเลิกงาน", user.shiftEnd)}
+    ${detailItem("เผื่อมาสาย", `${user.grace ?? state.settings.lateGrace} นาที`)}
+    ${detailItem("รายการที่เปิดอยู่", openLog ? formatDateTime(openLog.clockInAt) : "ไม่มี")}
   `;
 
   const recentLogs = state.logs.filter((log) => log.userId === user.id).slice(0, 5);
   els.recentClockList.innerHTML = recentLogs.length
-    ? recentLogs.map((log) => listItem(`${log.clockOutAt ? "Completed" : "Open"} · ${formatDateTime(log.clockInAt)}`, `${log.userName} · ${durationLabel(log)}`)).join("")
+    ? recentLogs.map((log) => listItem(`${log.clockOutAt ? "เสร็จสิ้น" : "กำลังทำงาน"} · ${formatDateTime(log.clockInAt)}`, `${log.userName} · ${durationLabel(log)}`)).join("")
     : emptyState("ยังไม่มีประวัติการลงเวลา");
 }
 
@@ -1118,7 +1118,7 @@ function renderUsers() {
   els.userList.innerHTML = `
     <table>
       <thead>
-        <tr><th>Name</th><th>Role</th><th>PIN</th><th>Shift</th><th>Status</th><th>Action</th></tr>
+        <tr><th>ชื่อ</th><th>สิทธิ์</th><th>PIN</th><th>เวลางาน</th><th>สถานะ</th><th>การจัดการ</th></tr>
       </thead>
       <tbody>
         ${state.users
@@ -1126,13 +1126,13 @@ function renderUsers() {
             (user) => `
               <tr>
                 <td>${escapeHtml(user.name)}</td>
-                <td>${escapeHtml(user.role)}</td>
+                <td>${user.role === "admin" ? "ผู้ดูแลระบบ" : "พนักงาน"}</td>
                 <td>${maskPin(user.pin)}</td>
                 <td>${escapeHtml(user.shiftStart)} - ${escapeHtml(user.shiftEnd)}</td>
-                <td>${user.active ? "Active" : "Disabled"}</td>
+                <td>${user.active ? "เปิดใช้งาน" : "ปิดใช้งาน"}</td>
                 <td>
-                  <button class="ghost" data-user-edit="${user.id}">Edit</button>
-                  <button class="secondary" data-user-delete="${user.id}">Delete</button>
+                  <button class="ghost" data-user-edit="${user.id}">แก้ไข</button>
+                  <button class="secondary" data-user-delete="${user.id}">ลบ</button>
                 </td>
               </tr>
             `,
@@ -1183,10 +1183,10 @@ function renderReports() {
   const filtered = getFilteredLogs({ month: selectedReportMonth, userId: selectedReportUser });
   const totals = summaryForLogs(filtered);
   els.reportStats.innerHTML = [
-    statCard("Records", filtered.length),
-    statCard("Hours", totals.hours.toFixed(1)),
-    statCard("Late mins", totals.lateMinutes),
-    statCard("Geo checked", filtered.filter((log) => geoLabel(log) !== "-").length),
+    statCard("รายการทั้งหมด", filtered.length),
+    statCard("ชั่วโมงทำงาน", totals.hours.toFixed(1)),
+    statCard("มาสาย (นาที)", totals.lateMinutes),
+    statCard("ตรวจพิกัดแล้ว", filtered.filter((log) => geoLabel(log) !== "-").length),
   ].join("");
 
   els.reportTable.innerHTML = filtered.length
@@ -1194,7 +1194,7 @@ function renderReports() {
       <table>
         <thead>
           <tr>
-            <th>Date</th><th>Employee</th><th>In</th><th>Out</th><th>Hours</th><th>Late</th><th>Geo</th>
+            <th>วันที่</th><th>พนักงาน</th><th>เข้า</th><th>ออก</th><th>ชั่วโมง</th><th>มาสาย</th><th>พิกัด</th>
           </tr>
         </thead>
         <tbody>
@@ -1616,7 +1616,7 @@ function renderReportRow(log) {
       <td>${formatDateKey(log.clockInAt)}</td>
       <td>${escapeHtml(log.userName)}</td>
       <td>${formatTime(log.clockInAt)}</td>
-      <td>${log.clockOutAt ? formatTime(log.clockOutAt) : "Open"}</td>
+      <td>${log.clockOutAt ? formatTime(log.clockOutAt) : "ยังไม่ออก"}</td>
       <td>${workedHours(log).toFixed(1)}</td>
       <td>${late > 0 ? `${late}m` : "-"}</td>
       <td>${geoLabel(log)}</td>
@@ -1648,9 +1648,9 @@ function drawMap() {
     if (els.mapGpsStatus) {
       if (locationCache) {
         const geofenceCheck = verifyGeofence(locationCache);
-        els.mapGpsStatus.textContent = `GPS live · ${locationCache.latitude.toFixed(5)}, ${locationCache.longitude.toFixed(5)} · ${Math.round(geofenceCheck.distance)}m from store`;
+        els.mapGpsStatus.textContent = `GPS ทำงาน · ${locationCache.latitude.toFixed(5)}, ${locationCache.longitude.toFixed(5)} · ห่างร้าน ${Math.round(geofenceCheck.distance)} เมตร`;
       } else {
-        els.mapGpsStatus.textContent = "GPS status: waiting for location";
+        els.mapGpsStatus.textContent = "สถานะ GPS: กำลังรอตำแหน่ง";
       }
     }
     return;
@@ -1680,9 +1680,9 @@ function drawMap() {
   if (els.mapGpsStatus) {
     if (locationCache) {
       const geofenceCheck = verifyGeofence(locationCache);
-      els.mapGpsStatus.textContent = `GPS live · ${locationCache.latitude.toFixed(5)}, ${locationCache.longitude.toFixed(5)} · ${Math.round(locationCache.accuracy)}m accuracy · ${Math.round(geofenceCheck.distance)}m from store`;
+      els.mapGpsStatus.textContent = `GPS ทำงาน · คลาดเคลื่อน ${Math.round(locationCache.accuracy)} เมตร · ห่างร้าน ${Math.round(geofenceCheck.distance)} เมตร`;
     } else {
-      els.mapGpsStatus.textContent = "GPS status: waiting for location";
+      els.mapGpsStatus.textContent = "สถานะ GPS: กำลังรอตำแหน่ง";
     }
   }
 
@@ -1786,13 +1786,13 @@ function projectPoint(lat, lng, width, height, radiusPx) {
 function exportCsv() {
   const rows = getFilteredLogs({ month: selectedReportMonth, userId: selectedReportUser });
   const csv = [
-    ["Date", "Employee", "Role", "Clock In", "Clock Out", "Hours", "Late Minutes", "Geo"],
+    ["วันที่", "พนักงาน", "สิทธิ์", "เวลาเข้า", "เวลาออก", "ชั่วโมง", "มาสาย (นาที)", "พิกัด"],
     ...rows.map((log) => [
       formatDateKey(log.clockInAt),
       log.userName,
       log.userRole,
       formatTime(log.clockInAt),
-      log.clockOutAt ? formatTime(log.clockOutAt) : "Open",
+      log.clockOutAt ? formatTime(log.clockOutAt) : "ยังไม่ออก",
       workedHours(log).toFixed(2),
       lateMinutes(log),
       geoLabel(log),

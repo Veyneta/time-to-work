@@ -288,7 +288,7 @@ app.post("/api/stores/:storeId/attendance/clock-in", requireAuth, sameStore, asy
 app.post("/api/stores/:storeId/attendance/clock-out", requireAuth, sameStore, async (request, response) => {
   const { location, distance } = request.body || {};
   const log = db.prepare("SELECT * FROM attendance_logs WHERE user_id = ? AND store_id = ? AND clock_out_at IS NULL ORDER BY clock_in_at DESC LIMIT 1").get(request.auth.userId, request.params.storeId);
-  if (!log) return response.status(404).json({ error: "ไม่พบรายการ Clock In" });
+  if (!log) return response.status(404).json({ error: "ไม่พบรายการลงเวลาเข้า" });
   const now = new Date().toISOString();
   const auditTrail = JSON.parse(log.audit_trail || "[]");
   auditTrail.push({ at: now, action: "clock-out", reason: "self-service" });

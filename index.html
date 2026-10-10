@@ -15,7 +15,7 @@
     <header class="topbar">
       <div class="brand-lockup">
         <p class="eyebrow light">Time to Work</p>
-        <p class="brand-subtitle">Attendance dashboard for stores and teams</p>
+        <p class="brand-subtitle">ระบบลงเวลาสำหรับร้านค้าและทีมงาน</p>
       </div>
       <div class="topbar-actions">
         <div class="topbar-status" id="topStatus">Offline demo</div>
@@ -43,12 +43,12 @@
     <main class="shell">
       <section class="hero-card panel" id="loginPanel">
         <div class="hero-copy">
-          <p class="eyebrow light">Clean Minimal Attendance UI</p>
+          <p class="eyebrow light">ระบบลงเวลาที่ใช้งานง่าย</p>
         </div>
 
         <div class="login-card login-stack">
           <div class="login-heading">
-            <h1>LOGIN</h1>
+            <h1>เข้าสู่ระบบ</h1>
           </div>
           <form id="loginForm" class="form-grid">
             <p class="eyebrow">เข้าใช้งาน</p>
@@ -94,11 +94,11 @@
       <section class="app-shell hidden" id="appShell">
         <aside class="sidebar panel">
           <nav class="tab-list" id="tabNav">
-            <button class="tab active" data-tab="dashboard">Dashboard</button>
-            <button class="tab" data-tab="clock">Clock</button>
-            <button class="tab admin-only" data-tab="users">Users</button>
-            <button class="tab" data-tab="reports">Reports</button>
-            <button class="tab admin-only" data-tab="settings">Admin</button>
+            <button class="tab active" data-tab="dashboard">หน้าหลัก</button>
+            <button class="tab" data-tab="clock">ลงเวลาเข้างาน</button>
+            <button class="tab admin-only" data-tab="users">จัดการผู้ใช้</button>
+            <button class="tab" data-tab="reports">รายงาน</button>
+            <button class="tab admin-only" data-tab="settings">การตั้งค่า</button>
           </nav>
 
           <div class="info-stack">
@@ -129,7 +129,7 @@
                   <h3>แผนที่ลงเวลา</h3>
                 </div>
                 <iframe id="googleMapFrame" class="google-map-frame" title="Google Maps แสดงตำแหน่งร้าน" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
-                <p class="muted small" id="mapGpsStatus">GPS status: waiting for location</p>
+                <p class="muted small" id="mapGpsStatus">สถานะ GPS: กำลังรอตำแหน่ง</p>
                 <p class="muted small">แผนที่แสดงตำแหน่งร้านจาก Google Maps</p>
               </article>
             </div>
@@ -138,7 +138,7 @@
           <section class="tab-panel" data-panel="clock">
             <div class="section-heading">
               <div>
-                <p class="eyebrow">Clock In / Clock Out</p>
+                <p class="eyebrow">ลงเวลาเข้า - ออกงาน</p>
                 <h2>ลงเวลางาน</h2>
               </div>
               <div class="chip-row" id="clockChips"></div>
@@ -148,13 +148,13 @@
                 <h3>การลงเวลาของฉัน</h3>
                 <p class="muted" id="clockHint">ระบบจะตรวจ GPS ก่อนบันทึกเวลา</p>
                 <div class="action-row">
-                  <button id="clockInBtn" class="primary" type="button">Clock In</button>
-                  <button id="clockOutBtn" class="secondary" type="button">Clock Out</button>
+                  <button id="clockInBtn" class="primary" type="button">ลงเวลาเข้า</button>
+                  <button id="clockOutBtn" class="secondary" type="button">ลงเวลาออก</button>
                 </div>
                 <div class="detail-grid" id="clockDetail"></div>
               </article>
               <article class="card soft">
-                <h3>ประวัติล่าสุด</h3>
+                <h3>ประวัติการลงเวลาล่าสุด</h3>
                 <div id="recentClockList" class="list-stack"></div>
               </article>
             </div>
@@ -163,7 +163,7 @@
           <section class="tab-panel admin-only" data-panel="users">
             <div class="section-heading">
               <div>
-                <p class="eyebrow">User Management</p>
+                <p class="eyebrow">จัดการพนักงาน</p>
                 <h2>จัดการพนักงาน</h2>
               </div>
             </div>
@@ -175,8 +175,8 @@
                   <label>ชื่อพนักงาน <input id="userName" required /></label>
                   <label>สิทธิ์
                     <select id="userRole">
-                      <option value="employee">Employee</option>
-                      <option value="admin">Admin</option>
+                      <option value="employee">พนักงาน</option>
+                      <option value="admin">ผู้ดูแลระบบ</option>
                     </select>
                   </label>
                   <label>PIN <input id="userPin" required inputmode="numeric" minlength="4" maxlength="8" pattern="[0-9]{4,8}" /></label>
@@ -206,7 +206,7 @@
           <section class="tab-panel" data-panel="reports">
             <div class="section-heading">
               <div>
-                <p class="eyebrow">Reports</p>
+                <p class="eyebrow">รายงาน</p>
                 <h2>รายงานเวลาและสรุป</h2>
               </div>
             </div>
@@ -217,8 +217,8 @@
                   <select id="reportUser"></select>
                 </label>
                 <div class="action-row">
-                  <button id="exportCsvBtn" class="secondary" type="button">Export CSV</button>
-                  <button id="exportJsonBtn" class="ghost" type="button">Export JSON</button>
+                  <button id="exportCsvBtn" class="secondary" type="button">ส่งออก CSV</button>
+                  <button id="exportJsonBtn" class="ghost" type="button">ส่งออก JSON</button>
                 </div>
               </div>
               <div class="stats-grid compact" id="reportStats"></div>
@@ -229,7 +229,7 @@
           <section class="tab-panel admin-only" data-panel="settings">
             <div class="section-heading">
               <div>
-                <p class="eyebrow">Admin Dashboard</p>
+                <p class="eyebrow">หน้าผู้ดูแลระบบ</p>
                 <h2>ตั้งค่าร้านและแก้ไขเวลา</h2>
               </div>
             </div>
