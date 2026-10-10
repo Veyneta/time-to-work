@@ -52,6 +52,7 @@ async function ensureSchema() {
 function requireAuth(request, response, next) { const value = String(request.headers.authorization || "").replace(/^Bearer\s+/i, ""); const current = sessions.get(value); if (!current || current.expiresAt < Date.now()) { sessions.delete(value); return response.status(401).json({ error: "กรุณาเข้าสู่ระบบใหม่" }); } request.auth = { token: value, ...current }; next(); }
 function requireAdmin(request, response, next) { if (request.auth.role !== "admin") return response.status(403).json({ error: "ต้องใช้บัญชี Admin" }); next(); }
 function sameStore(request, response, next) { if (request.auth.storeId !== request.params.storeId) return response.status(403).json({ error: "ไม่มีสิทธิ์เข้าถึงร้านนี้" }); next(); }
+function sameAccount(request, response, next) { if (!request.auth.accountId) return response.status(403).json({ error: "บัญชีนี้ยังไม่รองรับหลายสาขา" }); next(); }
 
 app.get("/api/health", async (request, response) => { try { await run("SELECT 1"); response.json({ ok: true, database: "postgres" }); } catch (error) { console.error(error); response.status(503).json({ ok: false, error: "database unavailable" }); } });
 
@@ -126,6 +127,29 @@ app.put("/api/stores/:storeId/users/:userId", requireAuth, sameStore, requireAdm
 });
 app.delete("/api/stores/:storeId/users/:userId", requireAuth, sameStore, requireAdmin, async (request, response, next) => { try { const result = await run("DELETE FROM users WHERE id=$1 AND store_id=$2 AND role!='admin'", [request.params.userId, request.params.storeId]); if (!result.rowCount) return response.status(404).json({ error: "ไม่พบผู้ใช้หรือไม่สามารถลบ Admin ได้" }); response.status(204).end(); } catch (error) { next(error); } });
 app.get("/api/stores/:storeId/users", requireAuth, sameStore, async (request, response, next) => { try { response.json({ users: (await many("SELECT * FROM users WHERE store_id=$1 ORDER BY name", [request.params.storeId])).map(publicUser) }); } catch (error) { next(error); } });
+
+app.post("/api/stores/:storeId/users/import", requireAuth, sameStore, requireAdmin, sameAccount, async (request, response, next) => {
+  try {
+    const sourceStoreId = String(request.body?.sourceStoreId || "");
+    if (!sourceStoreId || sourceStoreId === request.params.storeId) return response.status(400).json({ error: "เลือกสาขาต้นทางให้ถูกต้อง" });
+    const source = await one("SELECT id FROM stores WHERE id=$1 AND account_id=$2", [sourceStoreId, request.auth.accountId]);
+    if (!source) return response.status(404).json({ error: "ไม่พบสาขาต้นทาง" });
+    const sourceUsers = await many("SELECT * FROM users WHERE store_id=$1 AND role='employee'", [sourceStoreId]);
+    const targetUsers = await many("SELECT name FROM users WHERE store_id=$1", [request.params.storeId]);
+    const existingNames = new Set(targetUsers.map((user) => user.name.trim().toLowerCase()));
+    let imported = 0;
+    await withTransaction(async (client) => {
+      for (const user of sourceUsers) {
+        const normalizedName = user.name.trim().toLowerCase();
+        if (existingNames.has(normalizedName)) continue;
+        await client.query("INSERT INTO users (id,store_id,name,role,pin_hash,active,shift_start,shift_end,grace_minutes) VALUES ($1,$2,$3,'employee',$4,$5,$6,$7,$8)", [crypto.randomUUID(), request.params.storeId, user.name, user.pin_hash, user.active, user.shift_start, user.shift_end, user.grace_minutes]);
+        existingNames.add(normalizedName);
+        imported += 1;
+      }
+    });
+    response.json({ imported, users: (await many("SELECT * FROM users WHERE store_id=$1 ORDER BY name", [request.params.storeId])).map(publicUser) });
+  } catch (error) { next(error); }
+});
 
 app.post("/api/stores/:storeId/attendance/clock-in", requireAuth, sameStore, async (request, response, next) => { try { const { location, distance } = request.body || {}; const user = await one("SELECT * FROM users WHERE id=$1 AND store_id=$2 AND active=TRUE", [request.auth.userId, request.params.storeId]); if (!user) return response.status(404).json({ error: "ไม่พบผู้ใช้ที่ใช้งานอยู่" }); if (await one("SELECT id FROM attendance_logs WHERE user_id=$1 AND clock_out_at IS NULL", [user.id])) return response.status(409).json({ error: "มีรายการลงเวลาที่เปิดอยู่แล้ว" }); const id = crypto.randomUUID(); const now = new Date().toISOString(); await run("INSERT INTO attendance_logs (id,store_id,user_id,user_name,user_role,clock_in_at,in_lat,in_lng,geofence_distance_in,audit_trail) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)", [id, request.params.storeId, user.id, user.name, user.role, now, location?.latitude ?? null, location?.longitude ?? null, Math.round(Number(distance) || 0), JSON.stringify([{ at: now, action: "clock-in", reason: "self-service" }])]); response.status(201).json({ log: publicLog(await one("SELECT * FROM attendance_logs WHERE id=$1", [id])) }); } catch (error) { next(error); } });
 app.post("/api/stores/:storeId/attendance/clock-out", requireAuth, sameStore, async (request, response, next) => { try { const { location, distance } = request.body || {}; const log = await one("SELECT * FROM attendance_logs WHERE user_id=$1 AND store_id=$2 AND clock_out_at IS NULL ORDER BY clock_in_at DESC LIMIT 1", [request.auth.userId, request.params.storeId]); if (!log) return response.status(404).json({ error: "ไม่พบรายการ Clock In" }); const now = new Date().toISOString(); const audit = [...(log.audit_trail || []), { at: now, action: "clock-out", reason: "self-service" }]; await run("UPDATE attendance_logs SET clock_out_at=$1,out_lat=$2,out_lng=$3,geofence_distance_out=$4,audit_trail=$5::jsonb,updated_at=$1 WHERE id=$6", [now, location?.latitude ?? null, location?.longitude ?? null, Math.round(Number(distance) || 0), JSON.stringify(audit), log.id]); response.json({ log: publicLog(await one("SELECT * FROM attendance_logs WHERE id=$1", [log.id])) }); } catch (error) { next(error); } });

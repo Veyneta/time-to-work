@@ -145,6 +145,8 @@ function cacheElements() {
     "userActive",
     "userCancelBtn",
     "userList",
+    "employeeSourceBranch",
+    "importEmployeesBtn",
     "reportMonth",
     "reportUser",
     "exportCsvBtn",
@@ -200,6 +202,7 @@ function bindEvents() {
   els.clockOutBtn.addEventListener("click", () => handleClock("out"));
   els.userForm.addEventListener("submit", handleUserSave);
   els.userCancelBtn.addEventListener("click", resetUserForm);
+  els.importEmployeesBtn.addEventListener("click", handleImportEmployees);
   els.settingsForm.addEventListener("submit", handleSettingsSave);
   els.branchForm.addEventListener("submit", handleBranchCreate);
   els.openMapBtn.addEventListener("click", openMapPicker);
@@ -1071,6 +1074,12 @@ function renderClock() {
 function renderUsers() {
   if (!currentSessionUser() || currentSessionUser().role !== "admin") return;
 
+  const sourceBranches = (state.stores || []).filter((store) => store.id !== state.activeStoreId);
+  els.employeeSourceBranch.innerHTML = sourceBranches.length
+    ? sourceBranches.map((store, index) => `<option value="${escapeHtml(store.id)}">${index === 0 ? "สาขาหลัก · " : ""}${escapeHtml(store.storeName || store.settings?.storeName || store.id)}</option>`).join("")
+    : "<option value=\"\">ยังไม่มีสาขาอื่น</option>";
+  els.importEmployeesBtn.disabled = sourceBranches.length === 0;
+
   els.userList.innerHTML = `
     <table>
       <thead>
@@ -1100,6 +1109,39 @@ function renderUsers() {
 
   els.userList.querySelectorAll("[data-user-edit]").forEach((button) => button.addEventListener("click", () => startEditUser(button.dataset.userEdit)));
   els.userList.querySelectorAll("[data-user-delete]").forEach((button) => button.addEventListener("click", () => deleteUser(button.dataset.userDelete)));
+}
+
+async function handleImportEmployees() {
+  const sourceStoreId = els.employeeSourceBranch.value;
+  if (!sourceStoreId) {
+    toast("ยังไม่มีสาขาต้นทางให้โหลดข้อมูล", "warning");
+    return;
+  }
+  setButtonLoading(els.importEmployeesBtn, true, "กำลังโหลด...");
+  try {
+    const response = await apiFetch(`/api/stores/${state.activeStoreId}/users/import`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sourceStoreId }),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      toast(result.error || "โหลดข้อมูลพนักงานไม่สำเร็จ", "error");
+      return;
+    }
+    const store = state.stores.find((item) => item.id === state.activeStoreId);
+    if (store) {
+      store.users = result.users;
+      activateStore(store.id);
+      saveState();
+    }
+    renderAll();
+    toast(`โหลดพนักงานสำเร็จ ${result.imported} คน`, "success");
+  } catch (error) {
+    toast("เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ กรุณาลองใหม่", "error");
+  } finally {
+    setButtonLoading(els.importEmployeesBtn, false, "โหลดข้อมูลพนักงาน");
+  }
 }
 
 function renderReports() {

@@ -430,6 +430,24 @@ p {
   margin-bottom: 16px;
 }
 
+.branch-import-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.branch-import-row label {
+  min-width: 0;
+}
+
+@media (max-width: 720px) {
+  .branch-import-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 .tab-list {
   display: flex;
   gap: 8px;
