@@ -1,9 +1,19 @@
 PRAGMA foreign_keys = ON;
 
+CREATE TABLE IF NOT EXISTS accounts (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  password_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS stores (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL CHECK (length(trim(name)) > 0),
   email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  account_id TEXT REFERENCES accounts(id),
   password_hash TEXT NOT NULL,
   store_lat REAL NOT NULL DEFAULT 13.7563,
   store_lng REAL NOT NULL DEFAULT 100.5018,

@@ -83,7 +83,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   syncSessionUI();
   startLiveClock();
   if (session) {
-    const activeStore = state.stores.find((store) => store.id === state.activeStoreId);
+    const activeStore = state.stores.find((store) => store.id === session.storeId) || state.stores.find((store) => store.id === state.activeStoreId);
     if (activeStore) await Promise.all([loadUsersFromApi(activeStore), loadSettingsFromApi(activeStore), loadAttendanceFromApi(activeStore)]);
   }
   renderAll();
@@ -93,6 +93,8 @@ document.addEventListener("DOMContentLoaded", async () => {
 function cacheElements() {
   const ids = [
     "topStatus",
+    "branchSwitcherWrap",
+    "branchSwitcher",
     "loginPanel",
     "appShell",
     "loginForm",
@@ -157,6 +159,8 @@ function cacheElements() {
     "openMapBtn",
     "useGpsBtn",
     "lateGrace",
+    "branchForm",
+    "branchName",
     "adjustForm",
     "adjustLog",
     "adjustIn",
@@ -183,6 +187,7 @@ function cacheElements() {
 
 function bindEvents() {
   els.loginForm.addEventListener("submit", handleLogin);
+  els.branchSwitcher.addEventListener("change", handleBranchSwitch);
   els.forgotPasswordBtn?.addEventListener("click", handleForgotPassword);
   els.showRegisterBtn.addEventListener("click", showRegistration);
   els.hideRegisterBtn.addEventListener("click", hideRegistration);
@@ -196,6 +201,7 @@ function bindEvents() {
   els.userForm.addEventListener("submit", handleUserSave);
   els.userCancelBtn.addEventListener("click", resetUserForm);
   els.settingsForm.addEventListener("submit", handleSettingsSave);
+  els.branchForm.addEventListener("submit", handleBranchCreate);
   els.openMapBtn.addEventListener("click", openMapPicker);
   els.useGpsBtn.addEventListener("click", useCurrentGpsForStore);
   els.adjustForm.addEventListener("submit", handleAdjustmentSave);
@@ -368,6 +374,7 @@ async function apiFetch(url, options = {}) {
 }
 
 function renderAll() {
+  renderBranchSwitcher();
   renderLoginUsers();
   renderShellVisibility();
   renderSessionInfo();
@@ -379,6 +386,16 @@ function renderAll() {
   renderSettings();
   renderAdjustmentLists();
   drawMap();
+}
+
+function renderBranchSwitcher() {
+  const user = currentSessionUser();
+  const branches = state.stores || [];
+  const canSwitch = Boolean(session && user?.role === "admin" && branches.length > 1);
+  els.branchSwitcherWrap.classList.toggle("hidden", !canSwitch);
+  if (!canSwitch) return;
+  els.branchSwitcher.innerHTML = branches.map((branch) => `<option value="${escapeHtml(branch.id)}">${escapeHtml(branch.storeName || branch.settings?.storeName || branch.id)}</option>`).join("");
+  els.branchSwitcher.value = state.activeStoreId;
 }
 
 function renderLoginUsers() {
@@ -500,6 +517,10 @@ async function handleLogin(event) {
     state.stores.push(store);
   }
   store.storeEmail = email;
+  for (const branch of result.branches || []) {
+    if (state.stores.some((item) => item.id === branch.id)) continue;
+    state.stores.push(createStoreFromLegacy({ id: branch.id, settings: { ...defaultState.settings, storeName: branch.name } }, email, password));
+  }
   if (result.settings) {
     store.settings = { ...store.settings, ...result.settings };
     store.storeName = store.settings.storeName;
@@ -518,6 +539,7 @@ async function handleLogin(event) {
 
   saveSession({
     token: result.token,
+    accountId: result.accountId || result.store.accountId || null,
     storeId: state.activeStoreId,
     userId: employee.id,
     sessionUser: { id: employee.id, name: employee.name, role: employee.role, active: employee.active, shiftStart: employee.shiftStart, shiftEnd: employee.shiftEnd, grace: employee.grace },
@@ -531,6 +553,37 @@ async function handleLogin(event) {
   startAttendanceSync();
   toast(`ยินดีต้อนรับ ${employee.name}`, "success");
   refreshStoreAfterLogin(store, result);
+}
+
+async function handleBranchSwitch(event) {
+  const branchId = event.target.value;
+  if (!session || branchId === state.activeStoreId) return;
+  event.target.disabled = true;
+  try {
+    const response = await apiFetch("/api/auth/switch-branch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ storeId: branchId }),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      toast(result.error || "เปลี่ยนสาขาไม่สำเร็จ", "error");
+      return;
+    }
+    const store = state.stores.find((item) => item.id === branchId);
+    if (!store) return;
+    store.settings = { ...store.settings, ...result.settings };
+    store.storeName = store.settings.storeName;
+    activateStore(branchId);
+    saveSession({ ...session, storeId: branchId, userId: result.user.id, sessionUser: result.user });
+    await Promise.all([loadUsersFromApi(store), loadAttendanceFromApi(store)]);
+    renderAll();
+    toast(`เปลี่ยนเป็นสาขา ${store.storeName} แล้ว`, "success");
+  } catch (error) {
+    toast("เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ กรุณาลองใหม่", "error");
+  } finally {
+    event.target.disabled = false;
+  }
 }
 
 async function refreshStoreAfterLogin(store, result) {
@@ -1390,6 +1443,35 @@ async function handleSettingsSave(event) {
   saveState();
   renderAll();
   toast("บันทึกการตั้งค่าแล้ว", "success");
+}
+
+async function handleBranchCreate(event) {
+  event.preventDefault();
+  const name = els.branchName.value.trim();
+  if (!name) return;
+  const submitButton = event.target.querySelector("button[type=submit]");
+  setButtonLoading(submitButton, true, "กำลังสร้างสาขา...");
+  try {
+    const response = await apiFetch(`/api/stores/${state.activeStoreId}/branches`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      toast(result.error || "เพิ่มสาขาไม่สำเร็จ", "error");
+      return;
+    }
+    state.stores.push(createStoreFromLegacy({ id: result.branch.id, settings: { ...defaultState.settings, storeName: result.branch.name } }, state.storeEmail, ""));
+    els.branchForm.reset();
+    saveState();
+    renderAll();
+    toast(`เพิ่มสาขา ${name} สำเร็จ`, "success");
+  } catch (error) {
+    toast("เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ กรุณาลองใหม่", "error");
+  } finally {
+    setButtonLoading(submitButton, false, "เพิ่มสาขา");
+  }
 }
 
 async function handleAdjustmentSave(event) {

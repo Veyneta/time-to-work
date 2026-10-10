@@ -1,7 +1,17 @@
+CREATE TABLE IF NOT EXISTS accounts (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL CHECK (length(trim(name)) > 0),
+  email TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS stores (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL CHECK (length(trim(name)) > 0),
   email TEXT NOT NULL UNIQUE,
+  account_id TEXT REFERENCES accounts(id) ON DELETE CASCADE,
   password_hash TEXT NOT NULL,
   store_lat DOUBLE PRECISION NOT NULL DEFAULT 13.7563,
   store_lng DOUBLE PRECISION NOT NULL DEFAULT 100.5018,
@@ -48,5 +58,6 @@ CREATE TABLE IF NOT EXISTS attendance_logs (
 
 CREATE INDEX IF NOT EXISTS idx_users_store_active ON users(store_id, active);
 CREATE INDEX IF NOT EXISTS idx_users_store_role ON users(store_id, role);
+CREATE INDEX IF NOT EXISTS idx_stores_account ON stores(account_id);
 CREATE INDEX IF NOT EXISTS idx_attendance_store_date ON attendance_logs(store_id, clock_in_at);
 CREATE INDEX IF NOT EXISTS idx_attendance_user_open ON attendance_logs(user_id, clock_out_at);

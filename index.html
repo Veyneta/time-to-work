@@ -19,6 +19,10 @@
       </div>
       <div class="topbar-actions">
         <div class="topbar-status" id="topStatus">Offline demo</div>
+        <label class="branch-switcher hidden" id="branchSwitcherWrap">
+          <span class="sr-only">เลือกสาขา</span>
+          <select id="branchSwitcher" aria-label="เลือกสาขา"></select>
+        </label>
         <div class="user-menu" id="userMenu">
           <button id="userMenuBtn" class="user-menu-button" type="button" aria-label="เปิดข้อมูลผู้ใช้" aria-expanded="false" aria-controls="userMenuPanel">
             <svg class="user-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -237,6 +241,11 @@
                   <label>รัศมีอนุญาต (เมตร) <input id="storeRadius" type="number" min="1" required /></label>
                   <label>มาสายเผื่อได้ (นาที) <input id="lateGrace" type="number" min="0" required /></label>
                   <button type="submit" class="primary">บันทึกการตั้งค่า</button>
+                </form>
+                <form id="branchForm" class="form-grid branch-form">
+                  <h3>เพิ่มสาขา</h3>
+                  <label>ชื่อสาขา <input id="branchName" required placeholder="เช่น สาขาสยาม" /></label>
+                  <button type="submit" class="secondary">เพิ่มสาขา</button>
                 </form>
               </article>
               <article class="card soft">

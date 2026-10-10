@@ -21,7 +21,7 @@ app.use((request, response, next) => {
 function publicUser(user) {
   return { id: user.id, storeId: user.store_id, name: user.name, role: user.role, active: Boolean(user.active), shiftStart: user.shift_start, shiftEnd: user.shift_end, grace: user.grace_minutes };
 }
-function publicStore(store) { return { id: store.id, name: store.name, email: store.email, createdAt: store.created_at }; }
+function publicStore(store) { return { id: store.id, accountId: store.account_id, name: store.name, email: store.email, createdAt: store.created_at }; }
 function publicLog(log) {
   return { id: log.id, userId: log.user_id, userName: log.user_name, userRole: log.user_role, clockInAt: log.clock_in_at, clockOutAt: log.clock_out_at, inLat: log.in_lat, inLng: log.in_lng, outLat: log.out_lat, outLng: log.out_lng, geofenceDistanceIn: log.geofence_distance_in, geofenceDistanceOut: log.geofence_distance_out, source: log.source, notes: log.notes, auditTrail: log.audit_trail || [], createdAt: log.created_at, updatedAt: log.updated_at };
 }
@@ -38,11 +38,15 @@ async function ensureSchema() {
   await pool.query(schema);
   await pool.query(`
     ALTER TABLE stores
+      ADD COLUMN IF NOT EXISTS account_id TEXT REFERENCES accounts(id) ON DELETE CASCADE,
       ADD COLUMN IF NOT EXISTS store_lat DOUBLE PRECISION NOT NULL DEFAULT 13.7563,
       ADD COLUMN IF NOT EXISTS store_lng DOUBLE PRECISION NOT NULL DEFAULT 100.5018,
       ADD COLUMN IF NOT EXISTS store_radius DOUBLE PRECISION NOT NULL DEFAULT 250,
       ADD COLUMN IF NOT EXISTS late_grace INTEGER NOT NULL DEFAULT 10
   `);
+  await pool.query("ALTER TABLE stores DROP CONSTRAINT IF EXISTS stores_email_key");
+  await pool.query("INSERT INTO accounts (id, name, email, password_hash) SELECT id, name, email, password_hash FROM stores WHERE account_id IS NULL ON CONFLICT (email) DO NOTHING");
+  await pool.query("UPDATE stores AS stores SET account_id = accounts.id FROM accounts WHERE stores.account_id IS NULL AND accounts.email = stores.email");
 }
 function requireAuth(request, response, next) { const value = String(request.headers.authorization || "").replace(/^Bearer\s+/i, ""); const current = sessions.get(value); if (!current || current.expiresAt < Date.now()) { sessions.delete(value); return response.status(401).json({ error: "กรุณาเข้าสู่ระบบใหม่" }); } request.auth = { token: value, ...current }; next(); }
 function requireAdmin(request, response, next) { if (request.auth.role !== "admin") return response.status(403).json({ error: "ต้องใช้บัญชี Admin" }); next(); }
@@ -54,26 +58,61 @@ app.post("/api/stores", async (request, response, next) => {
   const { name, email, password, adminName = "Admin", adminPin } = request.body || {};
   const normalizedEmail = String(email || "").trim().toLowerCase();
   if (!String(name || "").trim() || !validEmail(normalizedEmail) || String(password || "").length < 6 || !validPin(adminPin)) return response.status(400).json({ error: "กรอกชื่อร้าน อีเมล รหัสผ่าน และ PIN admin ให้ถูกต้อง" });
-  const storeId = crypto.randomUUID(); const adminId = crypto.randomUUID();
+  const accountId = crypto.randomUUID(); const storeId = crypto.randomUUID(); const adminId = crypto.randomUUID();
   try {
     const passwordHash = await bcrypt.hash(password, 12); const pinHash = await bcrypt.hash(String(adminPin), 12);
-    await withTransaction(async (client) => { await client.query("INSERT INTO stores (id,name,email,password_hash) VALUES ($1,$2,$3,$4)", [storeId, String(name).trim(), normalizedEmail, passwordHash]); await client.query("INSERT INTO users (id,store_id,name,role,pin_hash) VALUES ($1,$2,$3,'admin',$4)", [adminId, storeId, String(adminName).trim() || "Admin", pinHash]); });
+    await withTransaction(async (client) => { await client.query("INSERT INTO accounts (id,name,email,password_hash) VALUES ($1,$2,$3,$4)", [accountId, String(name).trim(), normalizedEmail, passwordHash]); await client.query("INSERT INTO stores (id,account_id,name,email,password_hash) VALUES ($1,$2,$3,$4,$5)", [storeId, accountId, String(name).trim(), normalizedEmail, passwordHash]); await client.query("INSERT INTO users (id,store_id,name,role,pin_hash) VALUES ($1,$2,$3,'admin',$4)", [adminId, storeId, String(adminName).trim() || "Admin", pinHash]); });
     const store = await one("SELECT id,name,email,created_at FROM stores WHERE id=$1", [storeId]); const admin = await one("SELECT * FROM users WHERE id=$1", [adminId]); response.status(201).json({ store: publicStore(store), admin: publicUser(admin) });
   } catch (error) { if (error.code === "23505") return response.status(409).json({ error: "อีเมลร้านนี้มีอยู่แล้ว" }); next(error); }
 });
 
+app.post("/api/stores/:storeId/branches", requireAuth, sameStore, requireAdmin, async (request, response, next) => {
+  try {
+    const name = String(request.body?.name || "").trim();
+    if (!name) return response.status(400).json({ error: "กรอกชื่อสาขา" });
+    const account = await one("SELECT * FROM accounts WHERE id=$1", [request.auth.accountId]);
+    const admin = await one("SELECT * FROM users WHERE id=$1 AND store_id=$2", [request.auth.userId, request.params.storeId]);
+    if (!account || !admin) return response.status(403).json({ error: "ไม่มีสิทธิ์สร้างสาขา" });
+    const branchId = crypto.randomUUID();
+    const adminId = crypto.randomUUID();
+    await withTransaction(async (client) => {
+      await client.query("INSERT INTO stores (id,account_id,name,email,password_hash) VALUES ($1,$2,$3,$4,$5)", [branchId, account.id, name, account.email, account.password_hash]);
+      await client.query("INSERT INTO users (id,store_id,name,role,pin_hash) VALUES ($1,$2,$3,'admin',$4)", [adminId, branchId, admin.name, admin.pin_hash]);
+    });
+    const branch = await one("SELECT * FROM stores WHERE id=$1", [branchId]);
+    response.status(201).json({ branch: publicStore(branch), user: publicUser(await one("SELECT * FROM users WHERE id=$1", [adminId])) });
+  } catch (error) { next(error); }
+});
+
 app.post("/api/auth/login", async (request, response, next) => {
   try {
-    const { email, password, pin } = request.body || {}; const store = await one("SELECT * FROM stores WHERE LOWER(email)=LOWER($1)", [String(email || "").trim()]);
-    if (!store || !(await bcrypt.compare(String(password || ""), store.password_hash))) return response.status(401).json({ error: "อีเมลหรือรหัสผ่านร้านไม่ถูกต้อง" });
-    const users = await many("SELECT * FROM users WHERE store_id=$1 AND active=TRUE", [store.id]); let user = null;
+    const { email, password, pin } = request.body || {}; const account = await one("SELECT * FROM accounts WHERE LOWER(email)=LOWER($1)", [String(email || "").trim()]);
+    if (!account || !(await bcrypt.compare(String(password || ""), account.password_hash))) return response.status(401).json({ error: "อีเมลหรือรหัสผ่านร้านไม่ถูกต้อง" });
+    const branches = await many("SELECT * FROM stores WHERE account_id=$1 ORDER BY created_at", [account.id]);
+    const users = await many("SELECT users.*, stores.account_id FROM users JOIN stores ON stores.id=users.store_id WHERE stores.account_id=$1 AND users.active=TRUE", [account.id]); let user = null;
     for (const candidate of users) if (await bcrypt.compare(String(pin || ""), candidate.pin_hash)) { user = candidate; break; }
     if (!user) return response.status(401).json({ error: "PIN พนักงานไม่ถูกต้อง" });
-    const authToken = token(); sessions.set(authToken, { storeId: store.id, userId: user.id, role: user.role, expiresAt: Date.now() + sessionLifetimeMs });
-    response.json({ token: authToken, store: publicStore(store), settings: publicSettings(store), user: publicUser(user) });
+    const store = branches.find((branch) => branch.id === user.store_id) || branches[0];
+    const authToken = token(); sessions.set(authToken, { accountId: account.id, storeId: store.id, userId: user.id, role: user.role, expiresAt: Date.now() + sessionLifetimeMs });
+    response.json({ token: authToken, accountId: account.id, store: publicStore(store), branches: branches.map(publicStore), settings: publicSettings(store), user: publicUser(user) });
   } catch (error) { next(error); }
 });
 app.post("/api/auth/logout", requireAuth, (request, response) => { sessions.delete(request.auth.token); response.status(204).end(); });
+
+app.post("/api/auth/switch-branch", requireAuth, async (request, response, next) => {
+  try {
+    const branch = await one("SELECT * FROM stores WHERE id=$1 AND account_id=$2", [request.body?.storeId, request.auth.accountId]);
+    if (!branch) return response.status(404).json({ error: "ไม่พบสาขาที่เลือก" });
+    const branchUser = await one("SELECT * FROM users WHERE store_id=$1 AND role='admin' AND active=TRUE ORDER BY created_at LIMIT 1", [branch.id]);
+    if (!branchUser) return response.status(409).json({ error: "สาขานี้ยังไม่มีผู้ดูแล" });
+    const current = sessions.get(request.auth.token);
+    current.storeId = branch.id;
+    current.userId = branchUser.id;
+    current.role = branchUser.role;
+    sessions.set(request.auth.token, current);
+    response.json({ store: publicStore(branch), settings: publicSettings(branch), user: publicUser(branchUser) });
+  } catch (error) { next(error); }
+});
 
 app.get("/api/stores/:storeId/settings", requireAuth, sameStore, async (request, response, next) => { try { const store = await one("SELECT * FROM stores WHERE id=$1", [request.params.storeId]); if (!store) return response.status(404).json({ error: "ไม่พบร้านค้า" }); response.json({ settings: publicSettings(store) }); } catch (error) { next(error); } });
 app.put("/api/stores/:storeId/settings", requireAuth, sameStore, requireAdmin, async (request, response, next) => { try { const { storeName, lat, lng, radius, lateGrace } = request.body || {}; const values = [Number(lat), Number(lng), Number(radius), Number(lateGrace)]; if (!String(storeName || "").trim() || values.some((value) => !Number.isFinite(value)) || values[2] <= 0 || values[3] < 0 || values[0] < -90 || values[0] > 90 || values[1] < -180 || values[1] > 180) return response.status(400).json({ error: "ข้อมูลการตั้งค่าร้านไม่ถูกต้อง" }); const store = await one("UPDATE stores SET name=$1,store_lat=$2,store_lng=$3,store_radius=$4,late_grace=$5,updated_at=NOW() WHERE id=$6 RETURNING *", [String(storeName).trim(), ...values, request.params.storeId]); if (!store) return response.status(404).json({ error: "ไม่พบร้านค้า" }); response.json({ settings: publicSettings(store) }); } catch (error) { next(error); } });
