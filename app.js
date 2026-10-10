@@ -1,6 +1,7 @@
 const STORAGE_KEY = "timecation.state.v1";
 const SESSION_KEY = "timecation.session.v1";
 const SESSION_PERSIST_KEY = "timecation.session.remember.v1";
+const GPS_ACCURACY_LIMIT_METERS = 100;
 
 const defaultState = {
   settings: {
@@ -97,6 +98,7 @@ function cacheElements() {
     "loginForm",
     "loginEmail",
     "loginPassword",
+    "loginSubmitBtn",
     "loginKeepSignedIn",
     "forgotPasswordBtn",
     "showRegisterBtn",
@@ -470,6 +472,7 @@ async function handleLogin(event) {
   if (!pin) return;
 
   const rememberMe = Boolean(els.loginKeepSignedIn?.checked);
+  setButtonLoading(els.loginSubmitBtn, true, "กำลังโหลดข้อมูล...");
 
   let result;
   try {
@@ -481,10 +484,12 @@ async function handleLogin(event) {
     result = await response.json();
     if (!response.ok) {
       toast(result.error || "เข้าสู่ระบบไม่สำเร็จ", "error");
+      setButtonLoading(els.loginSubmitBtn, false, "เข้าสู่ระบบ");
       return;
     }
   } catch (error) {
     toast("เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ กรุณาเปิดผ่าน http://localhost:8787", "error");
+    setButtonLoading(els.loginSubmitBtn, false, "เข้าสู่ระบบ");
     return;
   }
 
@@ -521,6 +526,7 @@ async function handleLogin(event) {
   });
   els.loginPassword.value = "";
   els.loginKeepSignedIn.checked = false;
+  setButtonLoading(els.loginSubmitBtn, false, "เข้าสู่ระบบ");
   renderAll();
   startAttendanceSync();
   toast(`ยินดีต้อนรับ ${employee.name}`, "success");
@@ -764,12 +770,19 @@ async function handleClock(kind) {
     return;
   }
 
+  const actionButton = kind === "in" ? els.clockInBtn : els.clockOutBtn;
+  const idleLabel = kind === "in" ? "Clock In" : "Clock Out";
+  setButtonLoading(actionButton, true, "กำลังบันทึกเวลา...");
   const snapshot = await capturePrerequisites({ fresh: kind === "in" });
-  if (!snapshot) return;
+  if (!snapshot) {
+    setButtonLoading(actionButton, false, idleLabel);
+    return;
+  }
 
   const geofenceCheck = verifyGeofence(snapshot.location);
   if (!geofenceCheck.allowed) {
     toast(`อยู่นอกเขตร้าน ${Math.round(geofenceCheck.distance)} เมตร`, "error");
+    setButtonLoading(actionButton, false, idleLabel);
     return;
   }
 
@@ -784,6 +797,7 @@ async function handleClock(kind) {
     const result = await response.json();
     if (!response.ok) {
       toast(result.error || "บันทึกเวลาล้มเหลว", "error");
+      setButtonLoading(actionButton, false, idleLabel);
       return;
     }
     if (kind === "in") state.logs.unshift(result.log);
@@ -792,8 +806,10 @@ async function handleClock(kind) {
     toast(kind === "in" ? "Clock in สำเร็จ" : "Clock out สำเร็จ", "success");
   } catch (error) {
     toast("เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ จึงยังไม่บันทึกเวลา", "error");
+    setButtonLoading(actionButton, false, idleLabel);
     return;
   }
+  setButtonLoading(actionButton, false, idleLabel);
   renderAll();
 }
 
@@ -836,12 +852,26 @@ function closeEmployeePinModal() {
 async function capturePrerequisites({ fresh = false } = {}) {
   const location = await getCurrentLocation({ fresh });
   if (!location) {
-    toast("ไม่สามารถดึงตำแหน่ง GPS ได้ กรุณาอนุญาต Location และลองใหม่", "error");
+    toast(locationErrorMessage(), "error");
+    return null;
+  }
+
+  if (location.accuracy > GPS_ACCURACY_LIMIT_METERS) {
+    toast(`สัญญาณ GPS ไม่แม่นยำพอ (คลาดเคลื่อน ±${Math.round(location.accuracy)} ม.) กรุณาออกไปที่โล่งแล้วลองใหม่`, "warning");
     return null;
   }
 
   const distance = distanceMeters(location.latitude, location.longitude, state.settings.lat, state.settings.lng);
   return { location, distance };
+}
+
+let lastLocationError = null;
+
+function locationErrorMessage() {
+  if (lastLocationError?.code === 1) return "ไม่ได้รับอนุญาตใช้ Location กรุณาเปิดสิทธิ์ตำแหน่งให้ browser แล้วลองใหม่";
+  if (lastLocationError?.code === 2) return "ไม่พบตำแหน่ง GPS กรุณาเปิด GPS หรือเชื่อมต่อเครือข่ายแล้วลองใหม่";
+  if (lastLocationError?.code === 3) return "GPS ใช้เวลานานเกินไป กรุณาลองใหม่ในบริเวณที่สัญญาณชัด";
+  return "ไม่สามารถดึงตำแหน่ง GPS ได้ กรุณาตรวจสอบการตั้งค่า Location แล้วลองใหม่";
 }
 
 async function getCurrentLocation({ fresh = false } = {}) {
@@ -851,6 +881,7 @@ async function getCurrentLocation({ fresh = false } = {}) {
   return new Promise((resolve) => {
     navigator.geolocation.getCurrentPosition(
       (position) => {
+        lastLocationError = null;
         locationCache = {
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
@@ -858,7 +889,10 @@ async function getCurrentLocation({ fresh = false } = {}) {
         };
         resolve(locationCache);
       },
-      () => resolve(null),
+      (error) => {
+        lastLocationError = error;
+        resolve(null);
+      },
       { enableHighAccuracy: true, timeout: fresh ? 20000 : 10000, maximumAge: fresh ? 0 : 15000 },
     );
   });
@@ -1759,6 +1793,18 @@ function distanceMeters(lat1, lon1, lat2, lon2) {
   const deltaLambda = ((lon2 - lon1) * Math.PI) / 180;
   const a = Math.sin(deltaPhi / 2) ** 2 + Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) ** 2;
   return 2 * earth * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function setButtonLoading(button, loading, label) {
+  if (!button) return;
+  if (loading) {
+    button.dataset.idleLabel = button.textContent;
+    button.disabled = true;
+    button.textContent = label;
+  } else {
+    button.disabled = false;
+    button.textContent = label || button.dataset.idleLabel || button.textContent;
+  }
 }
 
 function toast(message, kind = "success") {
