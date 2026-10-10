@@ -106,8 +106,19 @@ app.post("/api/auth/switch-branch", requireAuth, async (request, response, next)
   try {
     const branch = await one("SELECT * FROM stores WHERE id=$1 AND account_id=$2", [request.body?.storeId, request.auth.accountId]);
     if (!branch) return response.status(404).json({ error: "ไม่พบสาขาที่เลือก" });
-    const branchUser = await one("SELECT * FROM users WHERE store_id=$1 AND role='admin' AND active=TRUE ORDER BY created_at LIMIT 1", [branch.id]);
-    if (!branchUser) return response.status(409).json({ error: "สาขานี้ยังไม่มีผู้ดูแล" });
+    let branchUser;
+    if (request.auth.role === "admin") {
+      branchUser = await one("SELECT * FROM users WHERE store_id=$1 AND role='admin' AND active=TRUE ORDER BY created_at LIMIT 1", [branch.id]);
+    } else {
+      const candidates = await many("SELECT * FROM users WHERE store_id=$1 AND role='employee' AND active=TRUE AND LOWER(name)=LOWER($2)", [branch.id, String(request.body?.userName || "")]);
+      for (const candidate of candidates) {
+        if (await bcrypt.compare(String(request.body?.pin || ""), candidate.pin_hash)) {
+          branchUser = candidate;
+          break;
+        }
+      }
+    }
+    if (!branchUser) return response.status(409).json({ error: request.auth.role === "admin" ? "สาขานี้ยังไม่มีผู้ดูแล" : "คุณไม่มีข้อมูลพนักงานในสาขานี้ จึงไม่สามารถลงเวลาได้" });
     const current = sessions.get(request.auth.token);
     current.storeId = branch.id;
     current.userId = branchUser.id;

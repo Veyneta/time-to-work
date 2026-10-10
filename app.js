@@ -419,7 +419,7 @@ function renderAll() {
 function renderBranchSwitcher() {
   const user = currentSessionUser();
   const branches = state.stores || [];
-  const canSwitch = Boolean(session && user?.role === "admin" && branches.length > 1);
+  const canSwitch = Boolean(session && user && branches.length > 1);
   els.branchSwitcherWrap.classList.toggle("hidden", !canSwitch);
   if (!canSwitch) return;
   els.branchSwitcher.innerHTML = branches.map((branch) => `<option value="${escapeHtml(branch.id)}">${escapeHtml(branch.storeName || branch.settings?.storeName || branch.id)}</option>`).join("");
@@ -593,14 +593,18 @@ async function handleBranchSwitch(event) {
   if (!session || branchId === state.activeStoreId) return;
   event.target.disabled = true;
   try {
+    const user = currentSessionUser();
+    const pin = user?.role === "admin" ? null : await requestEmployeePin();
+    if (user?.role !== "admin" && !pin) return;
     const response = await apiFetch("/api/auth/switch-branch", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ storeId: branchId }),
+      body: JSON.stringify({ storeId: branchId, userName: user?.name, pin }),
     });
     const result = await response.json();
     if (!response.ok) {
       toast(result.error || "เปลี่ยนสาขาไม่สำเร็จ", "error");
+      event.target.value = state.activeStoreId;
       return;
     }
     const store = state.stores.find((item) => item.id === branchId);
@@ -613,6 +617,7 @@ async function handleBranchSwitch(event) {
     renderAll();
     toast(`เปลี่ยนเป็นสาขา ${store.storeName} แล้ว`, "success");
   } catch (error) {
+    event.target.value = state.activeStoreId;
     toast("เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ กรุณาลองใหม่", "error");
   } finally {
     event.target.disabled = false;
