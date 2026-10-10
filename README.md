@@ -3,6 +3,8 @@
 
 
 
+คู่มือการใช้งานสำหรับร้านค้า: [USER-GUIDE.md](USER-GUIDE.md)
+
 Static local-first prototype for time attendance, user management, GPS geofencing, reports, and admin tools.
 
 ## What is included
