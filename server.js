@@ -32,6 +32,7 @@ for (const statement of [
 
 const sessions = new Map();
 const sessionLifetimeMs = 24 * 60 * 60 * 1000;
+const sessionSecret = crypto.createHash("sha256").update(process.env.SESSION_SECRET || "time-to-work-session-secret").digest();
 app.use(express.json({ limit: "5mb" }));
 app.use(express.static(__dirname));
 app.use((request, response, next) => {
@@ -83,13 +84,27 @@ function publicLog(log) {
   };
 }
 
-function createToken() {
-  return crypto.randomBytes(32).toString("hex");
+function createToken(payload) {
+  const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signature = crypto.createHmac("sha256", sessionSecret).update(encoded).digest("base64url");
+  return `${encoded}.${signature}`;
+}
+
+function readToken(value) {
+  try {
+    const [encoded, signature] = String(value || "").split(".");
+    if (!encoded || !signature) return null;
+    const expected = crypto.createHmac("sha256", sessionSecret).update(encoded).digest("base64url");
+    if (signature.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
+    return JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
+  } catch (error) {
+    return null;
+  }
 }
 
 function requireAuth(request, response, next) {
   const token = String(request.headers.authorization || "").replace(/^Bearer\s+/i, "");
-  const session = sessions.get(token);
+  const session = sessions.get(token) || readToken(token);
   if (!session || session.expiresAt < Date.now()) {
     sessions.delete(token);
     return response.status(401).json({ error: "กรุณาเข้าสู่ระบบใหม่" });
@@ -212,8 +227,9 @@ app.post("/api/auth/login", async (request, response) => {
   }
   if (!user) return response.status(401).json({ error: "PIN พนักงานไม่ถูกต้อง" });
 
-  const token = createToken();
-  sessions.set(token, { storeId: store.id, userId: user.id, role: user.role, expiresAt: Date.now() + sessionLifetimeMs });
+  const session = { storeId: store.id, userId: user.id, role: user.role, expiresAt: Date.now() + sessionLifetimeMs };
+  const token = createToken(session);
+  sessions.set(token, session);
   response.json({ token, store: publicStore(store), settings: publicSettings(store), user: publicUser(user) });
 });
 

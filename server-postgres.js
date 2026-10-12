@@ -10,6 +10,7 @@ const port = Number(process.env.PORT || 8787);
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false }, max: 5 });
 const sessions = new Map();
 const sessionLifetimeMs = 24 * 60 * 60 * 1000;
+const sessionSecret = crypto.createHash("sha256").update(process.env.SESSION_SECRET || process.env.DATABASE_URL || "time-to-work-session-secret").digest();
 
 app.use(express.json({ limit: "5mb" }));
 app.use(express.static(__dirname));
@@ -28,7 +29,22 @@ function publicLog(log) {
 function validPin(pin) { return /^\d{4,8}$/.test(String(pin || "")); }
 function validEmail(email) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || "")); }
 function publicSettings(store) { return { storeName: store.name, lat: Number(store.store_lat), lng: Number(store.store_lng), radius: Number(store.store_radius), lateGrace: Number(store.late_grace) }; }
-function token() { return crypto.randomBytes(32).toString("hex"); }
+function token(payload) {
+  const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signature = crypto.createHmac("sha256", sessionSecret).update(encoded).digest("base64url");
+  return `${encoded}.${signature}`;
+}
+function readToken(value) {
+  try {
+    const [encoded, signature] = String(value || "").split(".");
+    if (!encoded || !signature) return null;
+    const expected = crypto.createHmac("sha256", sessionSecret).update(encoded).digest("base64url");
+    if (signature.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
+    return JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
+  } catch (error) {
+    return null;
+  }
+}
 async function one(sql, params = []) { const result = await pool.query(sql, params); return result.rows[0] || null; }
 async function many(sql, params = []) { return (await pool.query(sql, params)).rows; }
 async function run(sql, params = []) { return pool.query(sql, params); }
@@ -49,7 +65,7 @@ async function ensureSchema() {
   await pool.query("INSERT INTO accounts (id, name, email, password_hash) SELECT id, name, email, password_hash FROM stores WHERE account_id IS NULL ON CONFLICT (email) DO NOTHING");
   await pool.query("UPDATE stores AS stores SET account_id = accounts.id FROM accounts WHERE stores.account_id IS NULL AND accounts.email = stores.email");
 }
-function requireAuth(request, response, next) { const value = String(request.headers.authorization || "").replace(/^Bearer\s+/i, ""); const current = sessions.get(value); if (!current || current.expiresAt < Date.now()) { sessions.delete(value); return response.status(401).json({ error: "กรุณาเข้าสู่ระบบใหม่" }); } request.auth = { token: value, ...current }; next(); }
+function requireAuth(request, response, next) { const value = String(request.headers.authorization || "").replace(/^Bearer\s+/i, ""); const current = sessions.get(value) || readToken(value); if (!current || current.expiresAt < Date.now()) { sessions.delete(value); return response.status(401).json({ error: "กรุณาเข้าสู่ระบบใหม่" }); } sessions.set(value, current); request.auth = { token: value, ...current }; next(); }
 function requireAdmin(request, response, next) { if (request.auth.role !== "admin") return response.status(403).json({ error: "ต้องใช้บัญชี Admin" }); next(); }
 function sameStore(request, response, next) { if (request.auth.storeId !== request.params.storeId) return response.status(403).json({ error: "ไม่มีสิทธิ์เข้าถึงร้านนี้" }); next(); }
 function sameAccount(request, response, next) { if (!request.auth.accountId) return response.status(403).json({ error: "บัญชีนี้ยังไม่รองรับหลายสาขา" }); next(); }
@@ -95,7 +111,7 @@ app.post("/api/auth/login", async (request, response, next) => {
     for (const candidate of users) if (await bcrypt.compare(String(pin || ""), candidate.pin_hash)) { user = candidate; break; }
     if (!user) return response.status(401).json({ error: "PIN พนักงานไม่ถูกต้อง" });
     const store = branches.find((branch) => branch.id === user.store_id) || branches[0];
-    const authToken = token(); sessions.set(authToken, { accountId: account.id, storeId: store.id, userId: user.id, role: user.role, expiresAt: Date.now() + sessionLifetimeMs });
+    const authSession = { accountId: account.id, storeId: store.id, userId: user.id, role: user.role, expiresAt: Date.now() + sessionLifetimeMs }; const authToken = token(authSession); sessions.set(authToken, authSession);
     response.json({ token: authToken, accountId: account.id, store: publicStore(store), branches: branches.map(publicStore), settings: publicSettings(store), user: publicUser(user) });
   } catch (error) { next(error); }
 });
